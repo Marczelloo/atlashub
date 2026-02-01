@@ -1,35 +1,30 @@
 FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
-# Dependencies stage
-FROM base AS deps
+# Dependencies + build stage (combined for pnpm workspace)
+FROM base AS builder
 WORKDIR /app
-COPY package.json pnpm-lock.yaml* ./
+
+# Copy workspace config
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY dashboard/package.json ./dashboard/
+
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build shared package
-FROM base AS shared-builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Copy source files
 COPY packages/shared ./packages/shared
+COPY dashboard ./dashboard
+
+# Build shared package first
 WORKDIR /app/packages/shared
 RUN pnpm build
 
 # Build dashboard
-FROM base AS dashboard-builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/dashboard/node_modules ./dashboard/node_modules
-COPY --from=shared-builder /app/packages/shared ./packages/shared
-COPY dashboard ./dashboard
-
-# Set environment for build
+WORKDIR /app/dashboard
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-
-WORKDIR /app/dashboard
 RUN pnpm build
 
 # Production image
@@ -43,9 +38,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-COPY --from=dashboard-builder /app/dashboard/public ./public
-COPY --from=dashboard-builder --chown=nextjs:nodejs /app/dashboard/.next/standalone ./
-COPY --from=dashboard-builder --chown=nextjs:nodejs /app/dashboard/.next/static ./.next/static
+COPY --from=builder /app/dashboard/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/dashboard/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/dashboard/.next/static ./.next/static
 
 USER nextjs
 

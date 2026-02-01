@@ -28,6 +28,11 @@ RUN pnpm build
 WORKDIR /app/dashboard
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Accept build-time env vars for Next.js public variables
+ARG NEXT_PUBLIC_GATEWAY_URL=http://localhost:4545
+ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
+
 RUN pnpm build
 
 # Production image

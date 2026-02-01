@@ -16,13 +16,29 @@ const registerSchema = z.object({
 });
 
 const COOKIE_NAME = 'atlashub_session';
-const COOKIE_OPTIONS = {
-  path: '/',
-  httpOnly: true,
-  secure: config.isProduction,
-  sameSite: 'lax' as const,
-  maxAge: config.security.sessionExpiryHours * 60 * 60, // in seconds
-};
+
+function getCookieOptions() {
+  const options: {
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'strict' | 'lax' | 'none';
+    maxAge: number;
+    domain?: string;
+  } = {
+    path: '/',
+    httpOnly: true,
+    secure: config.isProduction,
+    sameSite: config.cookieDomain ? 'none' : 'lax', // 'none' required for cross-subdomain with credentials
+    maxAge: config.security.sessionExpiryHours * 60 * 60, // in seconds
+  };
+
+  if (config.cookieDomain) {
+    options.domain = config.cookieDomain;
+  }
+
+  return options;
+}
 
 export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Login
@@ -36,7 +52,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     const user = await authService.validateCredentials(email, password);
     const token = await authService.generateToken(user);
 
-    reply.setCookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    reply.setCookie(COOKIE_NAME, token, getCookieOptions());
 
     return reply.send({
       data: {
@@ -70,7 +86,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     // Generate token
     const token = await authService.generateToken(user);
 
-    reply.setCookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    reply.setCookie(COOKIE_NAME, token, getCookieOptions());
 
     return reply.send({
       data: {
@@ -151,7 +167,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     const user = await authService.createUser(email, password, 'admin');
     const token = await authService.generateToken(user);
 
-    reply.setCookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    reply.setCookie(COOKIE_NAME, token, getCookieOptions());
 
     return reply.send({
       data: {

@@ -10,6 +10,9 @@ const envSchema = z.object({
   // CORS
   CORS_ORIGINS: z.string().default('*'),
 
+  // Cookie domain (for cross-subdomain auth, e.g., '.marczelloo.dev')
+  COOKIE_DOMAIN: z.string().optional(),
+
   // Rate limiting
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60000),
@@ -90,6 +93,7 @@ export const config = {
   host: env.HOST,
   logLevel: env.LOG_LEVEL,
   corsOrigins: env.CORS_ORIGINS === '*' ? true : env.CORS_ORIGINS.split(','),
+  cookieDomain: env.COOKIE_DOMAIN,
   rateLimitMax: env.RATE_LIMIT_MAX,
   rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
   bodyLimitBytes: env.BODY_LIMIT_BYTES,

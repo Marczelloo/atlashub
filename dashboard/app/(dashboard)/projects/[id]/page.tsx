@@ -268,7 +268,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
     try {
       // Get signed upload URL
-      const { uploadUrl, objectKey } = await api.getSignedUploadUrl(
+      const { uploadUrl } = await api.getSignedUploadUrl(
         id,
         selectedBucket,
         file.name,

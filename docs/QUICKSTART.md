@@ -179,11 +179,19 @@ export async function createPostsTable() {
         { name: 'id', type: 'uuid', primaryKey: true, default: 'gen_random_uuid()' },
         { name: 'title', type: 'text', nullable: false },
         { name: 'content', type: 'text' },
+<<<<<<< HEAD
         { name: 'created_at', type: 'timestamptz', default: 'now()' },
       ],
     }),
   });
 
+=======
+        { name: 'created_at', type: 'timestamptz', default: 'now()' }
+      ]
+    }),
+  });
+  
+>>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
   if (!res.ok) throw new Error('Failed to create table');
   return res.json();
 }

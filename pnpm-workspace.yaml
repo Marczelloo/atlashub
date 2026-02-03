@@ -1,4 +1,5 @@
 packages:
   - 'gateway'
   - 'dashboard'
+  - 'scheduler'
   - 'packages/*'

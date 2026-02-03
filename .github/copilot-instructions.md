@@ -307,3 +307,173 @@ When working on the Dashboard UI, the agent MUST leverage Claude-style frontend 
 - Avoid unnecessary animation libraries unless they improve usability
 
 The goal is a **professional internal admin dashboard**, not a public-facing marketing site.
+
+## New Module: Cron Jobs / Scheduler (Supabase-like scheduled functions)
+
+### Goal
+
+Provide scheduled tasks similar to Vercel Cron (but self-hosted), tightly integrated with AtlasHub:
+
+- schedule cron expressions per project
+- run HTTP tasks and internal platform tasks (backup, cleanup, migrations)
+- store run history, status, and logs
+- send notifications to Discord/email on failures and important events
+
+### Architecture
+
+Add a new service to docker-compose:
+
+- `scheduler` (Node.js + TS)
+  - reads enabled jobs from platform DB
+  - triggers executions (HTTP calls or internal platform actions)
+  - writes run results to `job_runs`
+  - stores large logs to MinIO via AtlasHub storage API (optional)
+
+### Types of jobs (MVP first)
+
+- `HTTP_JOB` (MVP): scheduled request to a URL
+  - supports method (GET/POST), headers, JSON body, timeout, retries/backoff
+- `PLATFORM_JOB` (phase 2): internal actions (backup/export/import/cleanup)
+  - must be allowlisted (no arbitrary shell)
+
+### Tables (platform DB)
+
+Add:
+
+- `cron_jobs`:
+  - id, project_id (nullable for global jobs), name, type (http|platform)
+  - schedule_cron, timezone
+  - http_url, http_method, http_headers_json, http_body_json (nullable)
+  - enabled, timeout_ms, retries, retry_backoff_ms
+  - created_at, updated_at
+- `cron_job_runs`:
+  - id, job_id, started_at, finished_at
+  - status (success|fail|timeout)
+  - http_status, duration_ms
+  - error_text
+  - log_object_key (optional, for storage logs)
+
+### Security requirements
+
+- HTTP_JOB targets must be allowlisted by default:
+  - allow only internal domains you control OR explicit allowlist in config
+- Secrets (tokens/headers) must be stored encrypted in platform DB using PLATFORM_MASTER_KEY.
+- Never log secrets.
+
+### Dashboard UI
+
+Add:
+
+- Cron Jobs page:
+  - list jobs, enable/disable, run now
+  - job form (cron, timezone, URL/method)
+  - run history with status + view logs
+- Integrate with notifications.
+
+---
+
+## New Module: Auth (Minimal, but production-ready)
+
+### Admin Auth (existing)
+
+- Keep Cloudflare Access JWT verification for admin dashboard
+- Dev fallback token stays
+
+### Public Auth (for apps using AtlasHub)
+
+Add optional auth module for end-user login (minimal version):
+
+- Email + password OR magic link (pick simplest first)
+- Issue JWT access tokens and refresh tokens
+- Store users per project (db-per-project OR platform DB with project_id)
+- RBAC roles (optional initially): owner/admin/member
+
+### Deliverable requirements
+
+- Endpoints:
+  - POST `/v1/auth/signup`
+  - POST `/v1/auth/login`
+  - POST `/v1/auth/refresh`
+  - POST `/v1/auth/logout`
+  - GET `/v1/auth/me`
+- Password storage:
+  - argon2 or bcrypt with strong params
+- Rate limiting on login endpoints
+- Audit log login events (platform DB)
+
+Note: This auth is optional for “public apps”; admin area remains Cloudflare Access protected.
+
+---
+
+## Database Conveniences (MVP required)
+
+### 1) Migrations (platform DB)
+
+- Add a migrations system for the platform DB schema:
+  - store executed migrations in `platform_migrations` table
+  - migration runner command: `pnpm migrate` (or node script)
+- Migrations must be idempotent and safe.
+
+### 2) Backups
+
+Provide backup functionality:
+
+- Platform DB backup (and optionally per-project DB backup)
+- Store backup files in MinIO (preferred) using AtlasHub storage
+- Support retention policy (e.g., keep last 7 or 14)
+
+Required capabilities:
+
+- Manual backup trigger from Dashboard
+- Scheduled backups via Cron Jobs module
+- Download signed URL for backup file
+
+### 3) Import / Export
+
+Implement import/export at two levels:
+
+- Export full database (platform or project DB) -> file
+- Export single table -> CSV or JSON
+- Import full DB (restore) OR import table (CSV/JSON) with clear warnings
+
+Safety requirements:
+
+- Imports must be admin-only
+- Validate file size limits and content type
+- For table import:
+  - map columns
+  - optional upsert mode (by primary key)
+- For full DB restore:
+  - require confirmation step + clearly documented rollback strategy
+
+### 4) Admin UI
+
+Add a “Database Tools” section to Dashboard:
+
+- Migrations status
+- Backup list + “Create backup”
+- Import/export UI:
+  - select DB (platform / proj\_<id>)
+  - select table or full DB
+  - format selection (CSV/JSON/SQL dump)
+  - signed URL flow for upload/download
+
+---
+
+## Deliverables Update (additions)
+
+In addition to existing deliverables, the agent MUST deliver:
+
+- `scheduler` service (cron jobs MVP)
+- DB migrations system
+- backup/export/import endpoints and UI pages
+- docs updates:
+  - `docs/USAGE.md` updated with new endpoints (auth, cron, db tools)
+  - `docs/QUICKSTART.md` updated with examples
+
+Definition of Done (extended):
+
+- Create/edit cron job + run history is visible
+- Scheduled backups work (store to MinIO)
+- Manual export/import works for at least one table in a project DB
+- Platform migrations run cleanly on Pi and Windows dev

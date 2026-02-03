@@ -225,6 +225,239 @@ x-api-key: <secret-key>
 
 ---
 
+## Schema Management (DDL) API
+
+Base path: `${ATLASHUB_API_URL}/v1/db/schema`
+
+All schema management endpoints **require a secret key**. These operations modify your database structure.
+
+### Create Table
+
+Create a new table with specified columns.
+
+```http
+POST /v1/db/schema/tables
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "posts",
+  "columns": [
+    {
+      "name": "id",
+      "type": "uuid",
+      "nullable": false,
+      "primaryKey": true,
+      "defaultValue": "gen_random_uuid()"
+    },
+    {
+      "name": "title",
+      "type": "varchar(255)",
+      "nullable": false
+    },
+    {
+      "name": "content",
+      "type": "text",
+      "nullable": true
+    },
+    {
+      "name": "author_id",
+      "type": "uuid",
+      "nullable": false,
+      "references": { "table": "users", "column": "id" }
+    },
+    {
+      "name": "created_at",
+      "type": "timestamptz",
+      "nullable": false,
+      "defaultValue": "now()"
+    }
+  ],
+  "ifNotExists": true
+}
+```
+
+**Column Options:**
+
+| Option         | Type    | Description                                                    |
+| -------------- | ------- | -------------------------------------------------------------- |
+| `name`         | string  | Column name (required)                                         |
+| `type`         | string  | PostgreSQL data type (required)                                |
+| `nullable`     | boolean | Allow NULL values (default: true)                              |
+| `primaryKey`   | boolean | Part of primary key                                            |
+| `unique`       | boolean | Add UNIQUE constraint                                          |
+| `defaultValue` | string  | Default value (e.g., `now()`, `gen_random_uuid()`, `'active'`) |
+| `references`   | object  | Foreign key: `{table, column}`                                 |
+
+**Allowed Data Types:**
+
+`text`, `varchar`, `char`, `integer`, `int`, `bigint`, `smallint`, `serial`, `bigserial`, `boolean`, `bool`, `timestamp`, `timestamptz`, `date`, `time`, `timetz`, `uuid`, `json`, `jsonb`, `numeric`, `decimal`, `real`, `double precision`, `float`, `bytea`
+
+**Response:**
+
+```json
+{
+  "data": {
+    "success": true,
+    "tableName": "posts"
+  }
+}
+```
+
+---
+
+### Drop Table
+
+Delete a table from the database.
+
+```http
+DELETE /v1/db/schema/tables/:table
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body (optional):**
+
+```json
+{
+  "ifExists": true,
+  "cascade": true
+}
+```
+
+**Options:**
+
+- `ifExists`: Don't error if table doesn't exist
+- `cascade`: Drop dependent objects (foreign keys, etc.)
+
+---
+
+### Rename Table
+
+Rename an existing table.
+
+```http
+PATCH /v1/db/schema/tables/:table/rename
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body:**
+
+```json
+{
+  "newName": "articles"
+}
+```
+
+---
+
+### Add Column
+
+Add a new column to an existing table.
+
+```http
+POST /v1/db/schema/tables/:table/columns
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "published_at",
+  "type": "timestamptz",
+  "nullable": true
+}
+```
+
+---
+
+### Drop Column
+
+Remove a column from a table.
+
+```http
+DELETE /v1/db/schema/tables/:table/columns/:column
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body (optional):**
+
+```json
+{
+  "ifExists": true,
+  "cascade": true
+}
+```
+
+---
+
+### Rename Column
+
+Rename a column in a table.
+
+```http
+PATCH /v1/db/schema/tables/:table/columns/rename
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Request Body:**
+
+```json
+{
+  "oldName": "title",
+  "newName": "headline"
+}
+```
+
+---
+
+### Schema Management Examples
+
+**Create a posts table from Next.js:**
+
+```typescript
+// app/actions.ts
+'use server';
+
+export async function createPostsTable() {
+  const res = await fetch(`${process.env.ATLASHUB_API_URL}/v1/db/schema/tables`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ATLASHUB_SECRET_KEY!,
+    },
+    body: JSON.stringify({
+      name: 'posts',
+      columns: [
+        { name: 'id', type: 'uuid', primaryKey: true, defaultValue: 'gen_random_uuid()' },
+        { name: 'title', type: 'varchar(255)', nullable: false },
+        { name: 'content', type: 'text' },
+        { name: 'created_at', type: 'timestamptz', defaultValue: 'now()' },
+      ],
+      ifNotExists: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.message || 'Failed to create table');
+  }
+
+  return res.json();
+}
+```
+
+---
+
 ## Public Storage API (Private Buckets)
 
 Base path: `${ATLASHUB_API_URL}/v1/storage`

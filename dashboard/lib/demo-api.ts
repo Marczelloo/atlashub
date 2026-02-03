@@ -3,12 +3,12 @@
 import { useMemo } from 'react';
 import { useDemo } from './demo-context';
 import { api } from './api';
-import type { 
-  Project, 
-  ApiKey, 
-  StatsOverview, 
-  ProjectStats, 
-  TimelineData, 
+import type {
+  Project,
+  ApiKey,
+  StatsOverview,
+  ProjectStats,
+  TimelineData,
   ActivityItem,
   CreateProjectResponse,
 } from './api';
@@ -102,7 +102,10 @@ export function createDemoApi(isDemo: boolean) {
       data: Array<{ name: string; type: string; nullable: boolean; default: string | null }>;
     }> {
       // Mock column data based on table name
-      const mockColumns: Record<string, Array<{ name: string; type: string; nullable: boolean; default: string | null }>> = {
+      const mockColumns: Record<
+        string,
+        Array<{ name: string; type: string; nullable: boolean; default: string | null }>
+      > = {
         products: [
           { name: 'id', type: 'integer', nullable: false, default: 'nextval(...)' },
           { name: 'name', type: 'varchar(255)', nullable: false, default: null },
@@ -188,6 +191,77 @@ export function createDemoApi(isDemo: boolean) {
 
     async getActivity(limit?: number): Promise<{ activity: ActivityItem[] }> {
       return { activity: mockActivity.slice(0, limit || 20) };
+    },
+
+    // Data Tools (Import/Export) - Per Project
+    async listDataToolsJobs(_projectId: string): Promise<{
+      data: Array<{
+        id: string;
+        projectId: string;
+        jobType: 'import' | 'export';
+        status: 'pending' | 'running' | 'completed' | 'failed';
+        tableName: string;
+        format: 'csv' | 'json';
+        rowCount?: number | null;
+        errorMessage?: string | null;
+        objectKey?: string | null;
+        createdAt: string;
+        completedAt?: string | null;
+      }>;
+    }> {
+      return {
+        data: [
+          {
+            id: 'job-1',
+            projectId: 'demo-project',
+            jobType: 'export',
+            status: 'completed',
+            tableName: 'products',
+            format: 'csv',
+            rowCount: 156,
+            createdAt: new Date(Date.now() - 3600000).toISOString(),
+            completedAt: new Date(Date.now() - 3500000).toISOString(),
+          },
+          {
+            id: 'job-2',
+            projectId: 'demo-project',
+            jobType: 'import',
+            status: 'completed',
+            tableName: 'customers',
+            format: 'json',
+            rowCount: 42,
+            createdAt: new Date(Date.now() - 86400000).toISOString(),
+            completedAt: new Date(Date.now() - 86300000).toISOString(),
+          },
+        ],
+      };
+    },
+
+    async exportTable(
+      _projectId: string,
+      _tableName: string,
+      _format: 'csv' | 'json',
+      _options?: { limit?: number; columns?: string[] }
+    ): Promise<string> {
+      throw new Error('Cannot export data in demo mode');
+    },
+
+    async importTable(
+      _projectId: string,
+      _tableName: string,
+      _format: 'csv' | 'json',
+      _data: string,
+      _mode: 'insert' | 'upsert'
+    ): Promise<{ data: { rowCount: number } }> {
+      throw new Error('Cannot import data in demo mode');
+    },
+
+    async getDataToolsUploadUrl(
+      _projectId: string,
+      _filename: string,
+      _contentType: string
+    ): Promise<{ data: { uploadUrl: string; objectKey: string; expiresIn: number } }> {
+      throw new Error('Cannot upload files in demo mode');
     },
   };
 }

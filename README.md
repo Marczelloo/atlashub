@@ -10,48 +10,64 @@
 
 ## ✨ Features
 
+### Core Platform
+
 - **🗄️ Database-per-Project** — Each project gets an isolated PostgreSQL database with dedicated roles
 - **📦 Private Object Storage** — MinIO S3-compatible storage with presigned upload/download URLs
 - **🔐 Secure API Keys** — SHA-256 hashed keys with publishable/secret key separation
 - **📊 Admin Dashboard** — Modern Next.js UI with SQL editor, file browser, and real-time settings
 - **⚡ REST CRUD API** — Safe, parameterized queries with Supabase-like filter syntax
+- **🛠️ Schema Management API** — Create, alter, and drop tables programmatically via API
+
+### DevOps & Automation
+
+- **⏰ Cron Jobs / Scheduler** — Schedule HTTP tasks and platform actions with cron expressions
+- **💾 Backups** — Automated and manual database backups stored in MinIO with retention policies
+- **📤 Import/Export** — Export tables to CSV/JSON, import data with insert/upsert modes
+
+### Administration
+
 - **🎛️ Runtime Settings** — Live-editable rate limits, database limits, and storage config
 - **📝 Audit Logging** — Track all administrative actions and settings changes
+- **👥 User Management** — Invite system with admin/regular user roles
+
+### Infrastructure
+
 - **🐳 Docker-Ready** — Works on Windows (amd64) and Raspberry Pi 5 (arm64)
 - **☁️ Cloudflare Integration** — Tunnel + Access for secure public exposure
 - **🎮 Demo Mode** — Try the dashboard with mock data using `?demo=true`
 
 ## 🛠️ Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 16, React 19, Tailwind CSS, shadcn/ui, Monaco Editor |
-| **Backend** | Fastify 5, Node.js 20, TypeScript |
-| **Database** | PostgreSQL 16 |
-| **Storage** | MinIO (S3-compatible) |
-| **Validation** | Zod |
-| **Infrastructure** | Docker, Cloudflare Tunnel & Access |
+| Layer              | Technology                                                   |
+| ------------------ | ------------------------------------------------------------ |
+| **Frontend**       | Next.js 16, React 19, Tailwind CSS, shadcn/ui, Monaco Editor |
+| **Backend**        | Fastify 5, Node.js 20, TypeScript                            |
+| **Database**       | PostgreSQL 16                                                |
+| **Storage**        | MinIO (S3-compatible)                                        |
+| **Validation**     | Zod                                                          |
+| **Infrastructure** | Docker, Cloudflare Tunnel & Access                           |
 
 ## 📸 Screenshots
 
 <details>
 <summary>Dashboard Overview</summary>
 
-*Coming soon*
+_Coming soon_
 
 </details>
 
 <details>
 <summary>SQL Editor</summary>
 
-*Coming soon*
+_Coming soon_
 
 </details>
 
 <details>
 <summary>Storage Browser</summary>
 
-*Coming soon*
+_Coming soon_
 
 </details>
 

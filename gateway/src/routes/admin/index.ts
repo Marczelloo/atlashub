@@ -7,6 +7,8 @@ import { inviteRoutes } from './invites.js';
 import { usersRoutes } from './users.js';
 import { statsRoutes } from './stats.js';
 import { settingsRoutes } from './settings.js';
+import { cronRoutes } from './cron.js';
+import { backupRoutes } from './backups.js';
 
 export const adminRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Apply admin authentication to all routes
@@ -20,4 +22,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
   await fastify.register(usersRoutes, { prefix: '/users' });
   await fastify.register(statsRoutes);
   await fastify.register(settingsRoutes);
+  await fastify.register(cronRoutes, { prefix: '/cron' });
+  await fastify.register(backupRoutes, { prefix: '/backups' });
+  // Note: Data Tools (import/export) are now per-project under /admin/projects/:id/data-tools/*
 };

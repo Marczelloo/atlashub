@@ -10,10 +10,11 @@ AtlasHub is a self-hosted backend platform providing:
 - **Private file storage** via MinIO (S3-compatible)
 - **REST API** for CRUD operations (no raw SQL from public API)
 - **Admin dashboard** with SQL editor (raw SQL allowed for admin only)
+- **Scheduler** for cron jobs (HTTP webhooks and platform tasks)
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     Cloudflare Tunnel                        │
 ├──────────────────────┬──────────────────────────────────────┤
@@ -33,7 +34,13 @@ AtlasHub is a self-hosted backend platform providing:
            ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
            │   Platform DB  │   │  Project DBs   │   │     MinIO      │
            │   (postgres)   │   │  (proj_<id>)   │   │   (Storage)    │
-           └────────────────┘   └────────────────┘   └────────────────┘
+           └───────┬────────┘   └────────────────┘   └────────────────┘
+                   │
+                   ▼
+           ┌────────────────┐
+           │   Scheduler    │
+           │   (croner)     │
+           └────────────────┘
 ```
 
 ## API Contract
@@ -48,13 +55,23 @@ AtlasHub is a self-hosted backend platform providing:
 
 ### Public API Endpoints (prefix: `/v1`)
 
-```
+```bash
+# Database CRUD
 GET  /v1/db/tables                    # List tables
 GET  /v1/db/:table                    # Select rows
 POST /v1/db/:table                    # Insert rows
 PATCH /v1/db/:table                   # Update rows (filter required)
 DELETE /v1/db/:table                  # Delete rows (filter required)
 
+# Schema Management (DDL) - Secret key required
+POST   /v1/db/schema/tables                          # Create table
+DELETE /v1/db/schema/tables/:table                   # Drop table
+PATCH  /v1/db/schema/tables/:table/rename            # Rename table
+POST   /v1/db/schema/tables/:table/columns           # Add column
+DELETE /v1/db/schema/tables/:table/columns/:column   # Drop column
+PATCH  /v1/db/schema/tables/:table/columns/rename    # Rename column
+
+# Storage
 POST /v1/storage/signed-upload        # Get presigned PUT URL
 GET  /v1/storage/signed-download      # Get presigned GET URL
 GET  /v1/storage/list                 # List objects (secret key only)
@@ -63,17 +80,44 @@ DELETE /v1/storage/object             # Delete object
 
 ### Admin API Endpoints (prefix: `/admin`)
 
-```
+```bash
+# Projects
 GET    /admin/projects                # List all projects
 GET    /admin/projects/:id            # Get project details
 POST   /admin/projects                # Create project + keys + DB + bucket
 DELETE /admin/projects/:id            # Delete project entirely
 
+# API Keys
 GET    /admin/projects/:id/keys       # List API keys
 POST   /admin/projects/:id/keys/rotate # Rotate a key
 DELETE /admin/projects/:id/keys/:keyId # Revoke a key
 
+# SQL Editor
 POST   /admin/projects/:id/sql        # Execute SQL (owner privileges)
+
+# Cron Jobs (Scheduler)
+GET    /admin/cron                    # List cron jobs
+POST   /admin/cron                    # Create cron job
+GET    /admin/cron/:id                # Get cron job details
+PATCH  /admin/cron/:id                # Update cron job
+DELETE /admin/cron/:id                # Delete cron job
+POST   /admin/cron/:id/toggle         # Enable/disable cron job
+POST   /admin/cron/:id/run            # Manually trigger cron job
+GET    /admin/cron/:id/runs           # Get run history
+
+# Backups
+GET    /admin/backups                 # List backups
+POST   /admin/backups                 # Create backup (platform/project/table)
+GET    /admin/backups/:id             # Get backup details
+DELETE /admin/backups/:id             # Delete backup
+GET    /admin/backups/:id/download    # Get presigned download URL
+POST   /admin/backups/cleanup         # Cleanup expired backups
+
+# Data Tools (Import/Export) - Per Project
+GET    /admin/projects/:id/data-tools/jobs        # List import/export jobs
+POST   /admin/projects/:id/data-tools/export      # Export table to CSV/JSON
+POST   /admin/projects/:id/data-tools/import      # Import data
+POST   /admin/projects/:id/data-tools/upload-url  # Get presigned upload URL for import
 ```
 
 ## Safety Constraints
@@ -127,12 +171,22 @@ POST   /admin/projects/:id/sql        # Execute SQL (owner privileges)
 ### Platform Database (`platform`)
 
 ```sql
+# Core tables
 projects            # Project metadata
 api_keys            # Hashed API keys (SHA-256)
 project_db_creds    # Encrypted connection strings (AES-256-GCM)
 buckets             # Logical bucket definitions
 file_metadata       # File tracking
 audit_logs          # Audit trail
+
+# Scheduler/Cron tables
+cron_jobs           # Scheduled job definitions (HTTP or platform jobs)
+cron_job_runs       # Execution history for cron jobs
+notification_settings  # Discord/email notification configs
+
+# Backup tables
+backups             # Backup records (platform, project, or table)
+import_export_jobs  # Import/export job tracking
 ```
 
 ### Project Databases (`proj_<uuid>`)

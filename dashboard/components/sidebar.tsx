@@ -14,6 +14,8 @@ import {
   ExternalLink,
   BookOpen,
   Eye,
+  Clock,
+  Archive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
@@ -32,6 +34,12 @@ const adminNavigation = [
   { name: 'All Projects', href: '/admin/projects', icon: BarChart3 },
   { name: 'Users', href: '/admin/users', icon: Users },
   { name: 'Invites', href: '/admin/invites', icon: KeyRound },
+];
+
+const toolsNavigation = [
+  { name: 'Cron Jobs', href: '/admin/cron', icon: Clock },
+  { name: 'Backups', href: '/admin/backups', icon: Archive },
+  // Note: Data Tools (Import/Export) is now per-project at Projects > [id] > Data Tools
 ];
 
 const externalLinks = [
@@ -105,6 +113,35 @@ export function Sidebar() {
             </p>
             <ul className="space-y-1">
               {adminNavigation.map((item) => {
+                const href = isDemo ? `${item.href}?demo=true` : item.href;
+                const isActive = pathname.startsWith(item.href);
+
+                return (
+                  <li key={item.name}>
+                    <Link
+                      href={href}
+                      className={cn(
+                        'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                        isActive
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.name}
+                      {isActive && <ChevronRight className="h-4 w-4 ml-auto" />}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="my-4 border-t border-zinc-800" />
+            <p className="px-3 mb-2 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              Tools
+            </p>
+            <ul className="space-y-1">
+              {toolsNavigation.map((item) => {
                 const href = isDemo ? `${item.href}?demo=true` : item.href;
                 const isActive = pathname.startsWith(item.href);
 

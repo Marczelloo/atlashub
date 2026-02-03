@@ -8,6 +8,70 @@ import { BadRequestError, NotFoundError } from '../lib/errors.js';
 const tableInfoCache = new Map<string, { tables: TableInfo[]; timestamp: number }>();
 const CACHE_TTL_MS = 60000; // 1 minute
 
+// Valid PostgreSQL data types (subset for safety)
+const ALLOWED_DATA_TYPES = new Set([
+  'text',
+  'varchar',
+  'char',
+  'integer',
+  'int',
+  'bigint',
+  'smallint',
+  'serial',
+  'bigserial',
+  'boolean',
+  'bool',
+  'timestamp',
+  'timestamptz',
+  'date',
+  'time',
+  'timetz',
+  'uuid',
+  'json',
+  'jsonb',
+  'numeric',
+  'decimal',
+  'real',
+  'double precision',
+  'float',
+  'bytea',
+]);
+
+// Reserved table names
+const RESERVED_TABLE_NAMES = new Set(['pg_catalog', 'information_schema', 'pg_toast', 'pg_temp']);
+
+// Column definition type
+interface ColumnDefinition {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  primaryKey?: boolean;
+  unique?: boolean;
+  defaultValue?: string;
+  references?: {
+    table: string;
+    column: string;
+  };
+}
+
+// Validate identifier (table name, column name)
+function validateIdentifier(name: string, type: 'table' | 'column'): void {
+  if (!name || typeof name !== 'string') {
+    throw new BadRequestError(`${type} name is required`);
+  }
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new BadRequestError(
+      `Invalid ${type} name: ${name}. Must start with letter or underscore, contain only alphanumeric and underscores`
+    );
+  }
+  if (name.length > 63) {
+    throw new BadRequestError(`${type} name too long: max 63 characters`);
+  }
+  if (type === 'table' && RESERVED_TABLE_NAMES.has(name.toLowerCase())) {
+    throw new BadRequestError(`${type} name is reserved: ${name}`);
+  }
+}
+
 export const crudService = {
   async getTables(projectId: string): Promise<TableInfo[]> {
     const cached = tableInfoCache.get(projectId);
@@ -246,5 +310,224 @@ export const crudService = {
     } else {
       tableInfoCache.clear();
     }
+  },
+
+  // ============================================================
+  // DDL Operations (Schema management) - Requires secret key
+  // ============================================================
+
+  async createTable(
+    projectId: string,
+    tableName: string,
+    columns: ColumnDefinition[],
+    ifNotExists = false
+  ): Promise<{ success: true; tableName: string }> {
+    validateIdentifier(tableName, 'table');
+
+    if (!columns || columns.length === 0) {
+      throw new BadRequestError('At least one column is required');
+    }
+
+    if (columns.length > 100) {
+      throw new BadRequestError('Too many columns: max 100');
+    }
+
+    const columnDefs: string[] = [];
+    const primaryKeys: string[] = [];
+    const uniqueConstraints: string[] = [];
+    const foreignKeys: string[] = [];
+
+    for (const col of columns) {
+      validateIdentifier(col.name, 'column');
+
+      // Validate and normalize type
+      const baseType = col.type.toLowerCase().split('(')[0].trim();
+      if (!ALLOWED_DATA_TYPES.has(baseType)) {
+        throw new BadRequestError(
+          `Invalid data type: ${col.type}. Allowed: ${[...ALLOWED_DATA_TYPES].join(', ')}`
+        );
+      }
+
+      let def = `"${col.name}" ${col.type}`;
+
+      if (col.nullable === false) {
+        def += ' NOT NULL';
+      }
+
+      if (col.defaultValue !== undefined) {
+        // Only allow simple default values (no SQL injection)
+        const defaultVal = col.defaultValue;
+        if (
+          defaultVal === 'now()' ||
+          defaultVal === 'CURRENT_TIMESTAMP' ||
+          defaultVal === 'gen_random_uuid()' ||
+          defaultVal === 'true' ||
+          defaultVal === 'false' ||
+          /^-?\d+(\.\d+)?$/.test(defaultVal) ||
+          /^'[^']*'$/.test(defaultVal)
+        ) {
+          def += ` DEFAULT ${defaultVal}`;
+        } else {
+          throw new BadRequestError(`Invalid default value: ${defaultVal}`);
+        }
+      }
+
+      columnDefs.push(def);
+
+      if (col.primaryKey) {
+        primaryKeys.push(`"${col.name}"`);
+      }
+
+      if (col.unique) {
+        uniqueConstraints.push(`UNIQUE ("${col.name}")`);
+      }
+
+      if (col.references) {
+        validateIdentifier(col.references.table, 'table');
+        validateIdentifier(col.references.column, 'column');
+        foreignKeys.push(
+          `FOREIGN KEY ("${col.name}") REFERENCES "${col.references.table}" ("${col.references.column}")`
+        );
+      }
+    }
+
+    // Add primary key constraint
+    if (primaryKeys.length > 0) {
+      columnDefs.push(`PRIMARY KEY (${primaryKeys.join(', ')})`);
+    }
+
+    // Add unique constraints
+    columnDefs.push(...uniqueConstraints);
+
+    // Add foreign key constraints
+    columnDefs.push(...foreignKeys);
+
+    const ifNotExistsClause = ifNotExists ? 'IF NOT EXISTS ' : '';
+    const sql = `CREATE TABLE ${ifNotExistsClause}"${tableName}" (\n  ${columnDefs.join(',\n  ')}\n)`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName };
+  },
+
+  async dropTable(
+    projectId: string,
+    tableName: string,
+    ifExists = false,
+    cascade = false
+  ): Promise<{ success: true; tableName: string }> {
+    validateIdentifier(tableName, 'table');
+
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    const sql = `DROP TABLE ${ifExistsClause}"${tableName}"${cascadeClause}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName };
+  },
+
+  async addColumn(
+    projectId: string,
+    tableName: string,
+    column: ColumnDefinition
+  ): Promise<{ success: true; tableName: string; columnName: string }> {
+    validateIdentifier(tableName, 'table');
+    validateIdentifier(column.name, 'column');
+
+    const baseType = column.type.toLowerCase().split('(')[0].trim();
+    if (!ALLOWED_DATA_TYPES.has(baseType)) {
+      throw new BadRequestError(`Invalid data type: ${column.type}`);
+    }
+
+    let def = `"${column.name}" ${column.type}`;
+
+    if (column.nullable === false) {
+      def += ' NOT NULL';
+    }
+
+    if (column.defaultValue !== undefined) {
+      const defaultVal = column.defaultValue;
+      if (
+        defaultVal === 'now()' ||
+        defaultVal === 'CURRENT_TIMESTAMP' ||
+        defaultVal === 'gen_random_uuid()' ||
+        defaultVal === 'true' ||
+        defaultVal === 'false' ||
+        /^-?\d+(\.\d+)?$/.test(defaultVal) ||
+        /^'[^']*'$/.test(defaultVal)
+      ) {
+        def += ` DEFAULT ${defaultVal}`;
+      } else {
+        throw new BadRequestError(`Invalid default value: ${defaultVal}`);
+      }
+    }
+
+    if (column.unique) {
+      def += ' UNIQUE';
+    }
+
+    const sql = `ALTER TABLE "${tableName}" ADD COLUMN ${def}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName, columnName: column.name };
+  },
+
+  async dropColumn(
+    projectId: string,
+    tableName: string,
+    columnName: string,
+    ifExists = false,
+    cascade = false
+  ): Promise<{ success: true; tableName: string; columnName: string }> {
+    validateIdentifier(tableName, 'table');
+    validateIdentifier(columnName, 'column');
+
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    const sql = `ALTER TABLE "${tableName}" DROP COLUMN ${ifExistsClause}"${columnName}"${cascadeClause}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName, columnName };
+  },
+
+  async renameTable(
+    projectId: string,
+    oldName: string,
+    newName: string
+  ): Promise<{ success: true; oldName: string; newName: string }> {
+    validateIdentifier(oldName, 'table');
+    validateIdentifier(newName, 'table');
+
+    const sql = `ALTER TABLE "${oldName}" RENAME TO "${newName}"`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, oldName, newName };
+  },
+
+  async renameColumn(
+    projectId: string,
+    tableName: string,
+    oldName: string,
+    newName: string
+  ): Promise<{ success: true; tableName: string; oldName: string; newName: string }> {
+    validateIdentifier(tableName, 'table');
+    validateIdentifier(oldName, 'column');
+    validateIdentifier(newName, 'column');
+
+    const sql = `ALTER TABLE "${tableName}" RENAME COLUMN "${oldName}" TO "${newName}"`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName, oldName, newName };
   },
 };

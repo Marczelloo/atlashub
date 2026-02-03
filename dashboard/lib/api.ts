@@ -100,6 +100,142 @@ export interface CreateProjectResponse {
   secretKey: string;
 }
 
+// Cron Job interfaces
+export interface CronJob {
+  id: string;
+  projectId: string | null;
+  name: string;
+  description: string | null;
+  jobType: 'http' | 'platform';
+  scheduleCron: string;
+  timezone: string;
+  httpUrl: string | null;
+  httpMethod: string | null;
+  httpHeaders: Record<string, string> | null;
+  httpBody: unknown | null;
+  platformAction: string | null;
+  platformConfig: Record<string, unknown> | null;
+  enabled: boolean;
+  timeoutMs: number;
+  retries: number;
+  retryBackoffMs: number;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CronJobRun {
+  id: string;
+  jobId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  status: 'running' | 'success' | 'fail' | 'timeout' | 'cancelled';
+  httpStatus: number | null;
+  errorText: string | null;
+  logObjectKey: string | null;
+  logPreview: string | null;
+  attemptNumber: number;
+  createdAt: string;
+}
+
+export interface CreateCronJobInput {
+  projectId?: string | null;
+  name: string;
+  description?: string;
+  jobType: 'http' | 'platform';
+  scheduleCron: string;
+  timezone?: string;
+  httpUrl?: string;
+  httpMethod?: string;
+  httpHeaders?: Record<string, string>;
+  httpBody?: unknown;
+  platformAction?: string;
+  platformConfig?: Record<string, unknown>;
+  enabled?: boolean;
+  timeoutMs?: number;
+  retries?: number;
+  retryBackoffMs?: number;
+}
+
+export interface UpdateCronJobInput {
+  name?: string;
+  description?: string;
+  scheduleCron?: string;
+  timezone?: string;
+  httpUrl?: string;
+  httpMethod?: string;
+  httpHeaders?: Record<string, string>;
+  httpBody?: unknown;
+  platformAction?: string;
+  platformConfig?: Record<string, unknown>;
+  enabled?: boolean;
+  timeoutMs?: number;
+  retries?: number;
+  retryBackoffMs?: number;
+}
+
+// Backup interfaces
+export interface Backup {
+  id: string;
+  projectId: string | null;
+  backupType: 'platform' | 'project' | 'table';
+  tableName: string | null;
+  objectKey: string;
+  sizeBytes: number;
+  format: 'sql' | 'csv' | 'json';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  errorMessage: string | null;
+  retentionDays: number | null;
+  expiresAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface CreateBackupInput {
+  projectId?: string | null;
+  backupType: 'platform' | 'project' | 'table';
+  tableName?: string;
+  format?: 'sql' | 'csv' | 'json';
+  retentionDays?: number;
+}
+
+// Import/Export interfaces
+export interface ImportExportJob {
+  id: string;
+  projectId: string;
+  jobType: 'import' | 'export';
+  tableName: string;
+  objectKey: string | null;
+  format: 'csv' | 'json';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  rowCount: number | null;
+  errorMessage: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface ExportTableInput {
+  projectId: string;
+  tableName: string;
+  format: 'csv' | 'json';
+  options?: {
+    limit?: number;
+    columns?: string[];
+  };
+}
+
+export interface ImportTableInput {
+  projectId: string;
+  tableName: string;
+  format: 'csv' | 'json';
+  objectKey: string;
+  mode: 'insert' | 'upsert' | 'truncate-insert';
+}
+
 export const api = {
   // Projects
   async listProjects(): Promise<{ data: Project[] }> {
@@ -253,7 +389,10 @@ export const api = {
     return fetchApi('/admin/settings');
   },
 
-  async updateRateLimits(rateLimitMax: number, rateLimitWindowMs: number): Promise<{
+  async updateRateLimits(
+    rateLimitMax: number,
+    rateLimitWindowMs: number
+  ): Promise<{
     message: string;
     rateLimitMax: number;
     rateLimitWindowMs: number;
@@ -264,7 +403,10 @@ export const api = {
     });
   },
 
-  async updateDatabaseLimits(sqlMaxRows: number, sqlStatementTimeoutMs: number): Promise<{
+  async updateDatabaseLimits(
+    sqlMaxRows: number,
+    sqlStatementTimeoutMs: number
+  ): Promise<{
     message: string;
     sqlMaxRows: number;
     sqlStatementTimeoutMs: number;
@@ -282,6 +424,134 @@ export const api = {
     return fetchApi('/admin/settings/storage', {
       method: 'PUT',
       body: JSON.stringify({ minioPublicUrl }),
+    });
+  },
+
+  // Cron Jobs
+  async listCronJobs(projectId?: string | null): Promise<{ data: CronJob[] }> {
+    const params = projectId !== undefined ? `?projectId=${projectId ?? 'null'}` : '';
+    return fetchApi(`/admin/cron${params}`);
+  },
+
+  async getCronJob(id: string): Promise<{ data: CronJob }> {
+    return fetchApi(`/admin/cron/${id}`);
+  },
+
+  async createCronJob(data: CreateCronJobInput): Promise<{ data: CronJob }> {
+    return fetchApi('/admin/cron', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateCronJob(id: string, data: UpdateCronJobInput): Promise<{ data: CronJob }> {
+    return fetchApi(`/admin/cron/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteCronJob(id: string): Promise<void> {
+    await fetchApi(`/admin/cron/${id}`, { method: 'DELETE' });
+  },
+
+  async toggleCronJob(id: string, enabled: boolean): Promise<{ data: CronJob }> {
+    return fetchApi(`/admin/cron/${id}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
+  async runCronJob(id: string): Promise<{ data: { message: string; runId: string } }> {
+    return fetchApi(`/admin/cron/${id}/run`, { method: 'POST' });
+  },
+
+  async getCronJobRuns(jobId: string, limit?: number): Promise<{ data: CronJobRun[] }> {
+    const params = limit ? `?limit=${limit}` : '';
+    return fetchApi(`/admin/cron/${jobId}/runs${params}`);
+  },
+
+  // Backups
+  async listBackups(projectId?: string | null): Promise<{ data: Backup[] }> {
+    const params = projectId !== undefined ? `?projectId=${projectId ?? 'null'}` : '';
+    return fetchApi(`/admin/backups${params}`);
+  },
+
+  async getBackup(id: string): Promise<{ data: Backup }> {
+    return fetchApi(`/admin/backups/${id}`);
+  },
+
+  async createBackup(data: CreateBackupInput): Promise<{ data: Backup }> {
+    return fetchApi('/admin/backups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getBackupDownloadUrl(
+    id: string
+  ): Promise<{ data: { downloadUrl: string; expiresIn: number } }> {
+    return fetchApi(`/admin/backups/${id}/download`);
+  },
+
+  async deleteBackup(id: string): Promise<void> {
+    await fetchApi(`/admin/backups/${id}`, { method: 'DELETE' });
+  },
+
+  async cleanupExpiredBackups(): Promise<{ data: { deletedCount: number } }> {
+    return fetchApi('/admin/backups/cleanup', { method: 'POST' });
+  },
+
+  // Data Tools (Import/Export) - Per Project
+  async listDataToolsJobs(projectId: string): Promise<{ data: ImportExportJob[] }> {
+    return fetchApi(`/admin/projects/${projectId}/data-tools/jobs`);
+  },
+
+  async exportTable(
+    projectId: string,
+    tableName: string,
+    format: 'csv' | 'json',
+    options?: { limit?: number; columns?: string[] }
+  ): Promise<string> {
+    const response = await fetch(`${GATEWAY_URL}/admin/projects/${projectId}/data-tools/export`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
+          ? { 'x-dev-admin-token': process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN }
+          : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ tableName, format, ...options }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Export failed' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.text();
+  },
+
+  async importTable(
+    projectId: string,
+    tableName: string,
+    format: 'csv' | 'json',
+    data: string,
+    mode: 'insert' | 'upsert' = 'insert'
+  ): Promise<{ data: { rowCount: number } }> {
+    return fetchApi(`/admin/projects/${projectId}/data-tools/import`, {
+      method: 'POST',
+      body: JSON.stringify({ tableName, format, data, mode }),
+    });
+  },
+
+  async getDataToolsUploadUrl(
+    projectId: string,
+    filename: string,
+    contentType: string
+  ): Promise<{ data: { uploadUrl: string; objectKey: string; expiresIn: number } }> {
+    return fetchApi(`/admin/projects/${projectId}/data-tools/upload-url`, {
+      method: 'POST',
+      body: JSON.stringify({ filename, contentType }),
     });
   },
 };

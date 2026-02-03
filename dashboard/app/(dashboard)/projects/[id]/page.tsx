@@ -24,6 +24,7 @@ import {
   Trash2,
   Download,
   Eye,
+  FileUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import Editor from '@monaco-editor/react';
@@ -420,10 +421,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
           {project.description && <p className="text-muted-foreground">{project.description}</p>}
         </div>
+        <Link href={`/projects/${id}/data-tools`}>
+          <Button variant="outline" size="sm">
+            <FileUp className="h-4 w-4 mr-2" />
+            Data Tools
+          </Button>
+        </Link>
       </div>
 
       {error && (

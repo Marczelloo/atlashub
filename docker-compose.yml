@@ -108,6 +108,34 @@ services:
       - atlashub-network
     profiles: ['default']
 
+  # Scheduler (Cron Jobs)
+  scheduler:
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
+    container_name: atlashub-scheduler
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-platform}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MAX_POOL_SIZE: 3
+      SCHEDULER_POLL_INTERVAL_MS: ${SCHEDULER_POLL_INTERVAL_MS:-30000}
+      SCHEDULER_DEFAULT_TIMEOUT_MS: ${SCHEDULER_DEFAULT_TIMEOUT_MS:-30000}
+      SCHEDULER_MAX_CONCURRENT_JOBS: ${SCHEDULER_MAX_CONCURRENT_JOBS:-5}
+      PLATFORM_MASTER_KEY: ${PLATFORM_MASTER_KEY}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - atlashub-network
+    profiles: ['default']
+
 volumes:
   pg_data:
   minio_data:

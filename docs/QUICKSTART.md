@@ -154,8 +154,40 @@ async function uploadFile(file: File) {
 ## Next Steps
 
 - Read [USAGE.md](USAGE.md) for complete API documentation
+- Create tables programmatically using the Schema API (see below)
 - Set up your project tables using the SQL Editor in the dashboard
 - Configure your Cloudflare Tunnel for production
+
+## Create Tables Programmatically
+
+Instead of using the SQL Editor, you can create tables via the Schema API (requires secret key):
+
+```typescript
+// app/setup.ts - Run once during app initialization
+'use server';
+
+export async function createPostsTable() {
+  const res = await fetch(`${process.env.ATLASHUB_API_URL}/v1/db/schema/tables`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ATLASHUB_SECRET_KEY!,
+    },
+    body: JSON.stringify({
+      name: 'posts',
+      columns: [
+        { name: 'id', type: 'uuid', primaryKey: true, default: 'gen_random_uuid()' },
+        { name: 'title', type: 'text', nullable: false },
+        { name: 'content', type: 'text' },
+        { name: 'created_at', type: 'timestamptz', default: 'now()' },
+      ],
+    }),
+  });
+
+  if (!res.ok) throw new Error('Failed to create table');
+  return res.json();
+}
+```
 
 ## Common Errors
 

@@ -9,6 +9,9 @@ import {
   Code,
   Terminal,
   ChevronRight,
+  Wrench,
+  Clock,
+  Archive,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SyntaxHighlighter } from '@/components/ui/syntax-highlighter';
@@ -17,7 +20,10 @@ const sections = [
   { id: 'overview', label: 'Overview', icon: BookOpen },
   { id: 'api', label: 'API Reference', icon: Code },
   { id: 'database', label: 'Database', icon: Database },
+  { id: 'schema', label: 'Schema (DDL)', icon: Wrench },
   { id: 'storage', label: 'Storage', icon: HardDrive },
+  { id: 'cron', label: 'Cron Jobs', icon: Clock },
+  { id: 'backups', label: 'Backups', icon: Archive },
   { id: 'authentication', label: 'Authentication', icon: Key },
   { id: 'examples', label: 'Examples', icon: Terminal },
 ];
@@ -54,9 +60,7 @@ export default function DocsPage() {
                 >
                   <section.icon className="h-4 w-4" />
                   {section.label}
-                  {activeSection === section.id && (
-                    <ChevronRight className="h-4 w-4 ml-auto" />
-                  )}
+                  {activeSection === section.id && <ChevronRight className="h-4 w-4 ml-auto" />}
                 </button>
               ))}
             </nav>
@@ -76,25 +80,35 @@ export default function DocsPage() {
                 </CardHeader>
                 <CardContent className="prose prose-invert max-w-none">
                   <p className="text-zinc-300">
-                    AtlasHub is a lightweight, self-hosted alternative to Supabase designed for 
+                    AtlasHub is a lightweight, self-hosted alternative to Supabase designed for
                     personal projects and small teams. It provides:
                   </p>
                   <ul className="space-y-2 text-zinc-300 mt-4">
                     <li className="flex items-start gap-2">
                       <Database className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
-                      <span><strong>Database per Project:</strong> Each project gets its own isolated PostgreSQL database</span>
+                      <span>
+                        <strong>Database per Project:</strong> Each project gets its own isolated
+                        PostgreSQL database
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <HardDrive className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
-                      <span><strong>File Storage:</strong> S3-compatible storage using MinIO with signed URLs</span>
+                      <span>
+                        <strong>File Storage:</strong> S3-compatible storage using MinIO with signed
+                        URLs
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <Key className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
-                      <span><strong>API Keys:</strong> Publishable and secret keys for secure API access</span>
+                      <span>
+                        <strong>API Keys:</strong> Publishable and secret keys for secure API access
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <Code className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
-                      <span><strong>REST API:</strong> Simple REST endpoints for CRUD operations</span>
+                      <span>
+                        <strong>REST API:</strong> Simple REST endpoints for CRUD operations
+                      </span>
                     </li>
                   </ul>
                 </CardContent>
@@ -137,9 +151,7 @@ const data = await response.json();`}
               <Card>
                 <CardHeader>
                   <CardTitle>API Reference</CardTitle>
-                  <CardDescription>
-                    All API requests require the x-api-key header
-                  </CardDescription>
+                  <CardDescription>All API requests require the x-api-key header</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -213,9 +225,7 @@ const data = await response.json();`}
               <Card>
                 <CardHeader>
                   <CardTitle>Database API</CardTitle>
-                  <CardDescription>
-                    CRUD operations for your project database
-                  </CardDescription>
+                  <CardDescription>CRUD operations for your project database</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -256,9 +266,7 @@ const res = await fetch('/v1/db/users?select=id,name,email&limit=10&offset=0&ord
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-lg mb-2 text-blue-400">
-                      POST /v1/db/:table
-                    </h4>
+                    <h4 className="font-semibold text-lg mb-2 text-blue-400">POST /v1/db/:table</h4>
                     <p className="text-zinc-400 text-sm mb-2">Insert rows into a table</p>
                     <SyntaxHighlighter
                       code={`const res = await fetch('/v1/db/users', {
@@ -322,9 +330,7 @@ const res = await fetch('/v1/db/users?select=id,name,email&limit=10&offset=0&ord
               <Card>
                 <CardHeader>
                   <CardTitle>Storage API</CardTitle>
-                  <CardDescription>
-                    File upload and download using signed URLs
-                  </CardDescription>
+                  <CardDescription>File upload and download using signed URLs</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -403,6 +409,321 @@ const { objects } = await res.json();`}
             </>
           )}
 
+          {activeSection === 'schema' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Schema Management (DDL)</CardTitle>
+                  <CardDescription>
+                    Create and modify tables programmatically (requires secret key)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                    <h4 className="font-medium text-amber-400 mb-2">Secret Key Required</h4>
+                    <p className="text-sm text-zinc-300">
+                      All schema operations require your secret key for security. Never expose DDL
+                      endpoints to client-side code.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-blue-400">
+                      POST /v1/db/schema/tables
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Create a new table</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables', {
+  method: 'POST',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'posts',
+    columns: [
+      { name: 'id', type: 'uuid', primaryKey: true, default: 'gen_random_uuid()' },
+      { name: 'title', type: 'text', nullable: false },
+      { name: 'content', type: 'text' },
+      { name: 'author_id', type: 'uuid', nullable: false },
+      { name: 'created_at', type: 'timestamptz', default: 'now()' }
+    ]
+  })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-red-400">
+                      DELETE /v1/db/schema/tables/:table
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Drop a table (irreversible!)</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/old_posts', {
+  method: 'DELETE',
+  headers: { 'x-api-key': secretKey }
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-amber-400">
+                      PATCH /v1/db/schema/tables/:table/rename
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Rename a table</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/posts/rename', {
+  method: 'PATCH',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ newName: 'articles' })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-blue-400">
+                      POST /v1/db/schema/tables/:table/columns
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Add a column to existing table</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/posts/columns', {
+  method: 'POST',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'published',
+    type: 'boolean',
+    default: 'false'
+  })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-red-400">
+                      DELETE /v1/db/schema/tables/:table/columns/:column
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Drop a column</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/posts/columns/old_field', {
+  method: 'DELETE',
+  headers: { 'x-api-key': secretKey }
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-amber-400">
+                      PATCH /v1/db/schema/tables/:table/columns/rename
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Rename a column</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/posts/columns/rename', {
+  method: 'PATCH',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    oldName: 'title',
+    newName: 'headline'
+  })
+});`}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeSection === 'cron' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Cron Jobs</CardTitle>
+                  <CardDescription>Schedule recurring tasks and HTTP webhooks</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">About Cron Jobs</h4>
+                    <p className="text-zinc-400 text-sm mb-4">
+                      AtlasHub includes a built-in scheduler for running HTTP webhooks on a
+                      schedule. Cron jobs are managed through the dashboard or admin API.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-emerald-400">
+                      Common Cron Expressions
+                    </h4>
+                    <SyntaxHighlighter
+                      code={`// Every minute
+* * * * *
+
+// Every hour at minute 0
+0 * * * *
+
+// Every day at midnight
+0 0 * * *
+
+// Every Monday at 9am
+0 9 * * 1
+
+// Every 5 minutes
+*/5 * * * *
+
+// First day of month at midnight
+0 0 1 * *`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Use Cases</h4>
+                    <ul className="text-sm text-zinc-400 space-y-2 list-disc list-inside">
+                      <li>Trigger database cleanup jobs</li>
+                      <li>Send scheduled email digests via webhook</li>
+                      <li>Sync data with external services</li>
+                      <li>Generate scheduled reports</li>
+                      <li>Ping health check endpoints</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Admin API Endpoints</h4>
+                    <SyntaxHighlighter
+                      code={`// List cron jobs
+GET /admin/cron
+
+// Create cron job
+POST /admin/cron
+{
+  "name": "Daily Cleanup",
+  "projectId": "uuid",
+  "type": "http",
+  "scheduleCron": "0 0 * * *",
+  "timezone": "UTC",
+  "httpUrl": "https://api.example.com/cleanup",
+  "httpMethod": "POST"
+}
+
+// Toggle job on/off
+POST /admin/cron/:id/toggle
+
+// Trigger job manually
+POST /admin/cron/:id/run
+
+// View run history
+GET /admin/cron/:id/runs`}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeSection === 'backups' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Backups</CardTitle>
+                  <CardDescription>Database backup and restore functionality</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">About Backups</h4>
+                    <p className="text-zinc-400 text-sm mb-4">
+                      AtlasHub supports automated and manual backups of your project databases.
+                      Backups are stored in MinIO and can be downloaded or restored.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-emerald-400">Backup Types</h4>
+                    <ul className="text-sm text-zinc-400 space-y-2 list-disc list-inside">
+                      <li>
+                        <strong>Platform backup:</strong> Backs up the main AtlasHub database
+                      </li>
+                      <li>
+                        <strong>Project backup:</strong> Backs up a specific project database
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Admin API Endpoints</h4>
+                    <SyntaxHighlighter
+                      code={`// List backups
+GET /admin/backups
+
+// Create backup
+POST /admin/backups
+{
+  "type": "project",
+  "projectId": "uuid",
+  "retentionDays": 7
+}
+
+// Get backup details
+GET /admin/backups/:id
+
+// Download backup (returns signed URL)
+GET /admin/backups/:id/download
+
+// Delete backup
+DELETE /admin/backups/:id
+
+// Cleanup expired backups
+POST /admin/backups/cleanup`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Per-Project Data Tools</h4>
+                    <p className="text-zinc-400 text-sm mb-2">
+                      Export and import tables in CSV or JSON format
+                    </p>
+                    <SyntaxHighlighter
+                      code={`// Export table
+POST /admin/projects/:id/data-tools/export
+{
+  "table": "users",
+  "format": "json"  // or "csv"
+}
+
+// Get upload URL for import
+POST /admin/projects/:id/data-tools/upload-url
+{
+  "filename": "users.json"
+}
+
+// Import table
+POST /admin/projects/:id/data-tools/import
+{
+  "table": "users",
+  "format": "json",
+  "objectKey": "imports/users.json",
+  "mode": "insert"  // or "upsert"
+}`}
+                    />
+                  </div>
+
+                  <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/10">
+                    <h4 className="font-medium text-blue-400 mb-2">Dashboard Access</h4>
+                    <p className="text-sm text-zinc-300">
+                      All backup and data tools features are available in the dashboard under each
+                      project&apos;s Data Tools section.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
           {activeSection === 'authentication' && (
             <>
               <Card>
@@ -474,9 +795,7 @@ export async function POST(req: NextRequest) {
               <Card>
                 <CardHeader>
                   <CardTitle>Complete Examples</CardTitle>
-                  <CardDescription>
-                    Copy-paste ready code for common use cases
-                  </CardDescription>
+                  <CardDescription>Copy-paste ready code for common use cases</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -534,7 +853,9 @@ export function FileUpload() {
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-lg mb-2">Data Fetching with Server Components</h4>
+                    <h4 className="font-semibold text-lg mb-2">
+                      Data Fetching with Server Components
+                    </h4>
                     <SyntaxHighlighter
                       code={`// app/users/page.tsx
 async function getUsers() {

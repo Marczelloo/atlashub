@@ -1,8 +1,39 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { createProjectSchema } from '@atlashub/shared';
 import { projectService } from '../../services/project.js';
 import { apiKeyService } from '../../services/api-key.js';
+import { importExportService } from '../../services/import-export.js';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+
+const exportTableSchema = z.object({
+  tableName: z.string().min(1).max(255),
+  format: z.enum(['csv', 'json']),
+  options: z
+    .object({
+      limit: z.number().int().min(1).max(100000).optional(),
+      columns: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+const importTableSchema = z.object({
+  tableName: z.string().min(1).max(255),
+  format: z.enum(['csv', 'json']),
+  data: z.string().min(1),
+  options: z
+    .object({
+      upsertColumn: z.string().optional(),
+      skipFirstRow: z.boolean().optional(),
+      columnMapping: z.record(z.string()).optional(),
+    })
+    .optional(),
+});
+
+const getUploadUrlSchema = z.object({
+  filename: z.string().min(1).max(255),
+  contentType: z.string().max(100),
+});
 
 export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // List all projects
@@ -65,4 +96,65 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       return reply.status(204).send();
     }
   );
+
+  // ============================================================
+  // Data Tools (Import/Export) - Per Project
+  // ============================================================
+
+  // List import/export jobs for this project
+  fastify.get<{ Params: { id: string } }>('/:id/data-tools/jobs', async (request, reply) => {
+    const jobs = await importExportService.listJobs(request.params.id);
+    return reply.send({ data: jobs });
+  });
+
+  // Export table data
+  fastify.post<{ Params: { id: string } }>('/:id/data-tools/export', async (request, reply) => {
+    const parsed = exportTableSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+    }
+
+    const result = await importExportService.exportTable(
+      { ...parsed.data, projectId: request.params.id },
+      request.user?.id
+    );
+
+    const filename = `${parsed.data.tableName}_export.${parsed.data.format}`;
+    reply.header('Content-Type', result.contentType);
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.send(result.data);
+  });
+
+  // Import table data
+  fastify.post<{ Params: { id: string } }>('/:id/data-tools/import', async (request, reply) => {
+    const parsed = importTableSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+    }
+
+    if (parsed.data.data.length > 2 * 1024 * 1024) {
+      throw new BadRequestError('Data too large. Use file upload for imports over 2MB.');
+    }
+
+    const result = await importExportService.importTable(
+      { ...parsed.data, projectId: request.params.id },
+      request.user?.id
+    );
+    return reply.send({ data: result });
+  });
+
+  // Get signed upload URL for importing larger files
+  fastify.post<{ Params: { id: string } }>('/:id/data-tools/upload-url', async (request, reply) => {
+    const parsed = getUploadUrlSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+    }
+
+    const result = await importExportService.getUploadUrl(
+      request.params.id,
+      parsed.data.filename,
+      parsed.data.contentType
+    );
+    return reply.send({ data: result });
+  });
 };

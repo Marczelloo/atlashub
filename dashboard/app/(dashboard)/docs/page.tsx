@@ -423,7 +423,6 @@ const { objects } = await res.json();`}
                     <h4 className="font-medium text-amber-400 mb-2">Secret Key Required</h4>
                     <p className="text-sm text-zinc-300">
                       All schema operations require your secret key for security. Never expose DDL
-
                     </p>
                   </div>
 
@@ -546,25 +545,14 @@ const { objects } = await res.json();`}
               <Card>
                 <CardHeader>
                   <CardTitle>Cron Jobs</CardTitle>
-<<<<<<< HEAD
                   <CardDescription>Schedule recurring tasks and HTTP webhooks</CardDescription>
-=======
-                  <CardDescription>
-                    Schedule recurring tasks and HTTP webhooks
-                  </CardDescription>
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
                     <h4 className="font-semibold text-lg mb-2">About Cron Jobs</h4>
                     <p className="text-zinc-400 text-sm mb-4">
-<<<<<<< HEAD
                       AtlasHub includes a built-in scheduler for running HTTP webhooks on a
                       schedule. Cron jobs are managed through the dashboard or admin API.
-=======
-                      AtlasHub includes a built-in scheduler for running HTTP webhooks on a schedule.
-                      Cron jobs are managed through the dashboard or admin API.
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
                     </p>
                   </div>
 
@@ -642,13 +630,7 @@ GET /admin/cron/:id/runs`}
               <Card>
                 <CardHeader>
                   <CardTitle>Backups</CardTitle>
-<<<<<<< HEAD
                   <CardDescription>Database backup and restore functionality</CardDescription>
-=======
-                  <CardDescription>
-                    Database backup and restore functionality
-                  </CardDescription>
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -660,7 +642,6 @@ GET /admin/cron/:id/runs`}
                   </div>
 
                   <div>
-<<<<<<< HEAD
                     <h4 className="font-semibold text-lg mb-2 text-emerald-400">Backup Types</h4>
                     <ul className="text-sm text-zinc-400 space-y-2 list-disc list-inside">
                       <li>
@@ -669,14 +650,6 @@ GET /admin/cron/:id/runs`}
                       <li>
                         <strong>Project backup:</strong> Backs up a specific project database
                       </li>
-=======
-                    <h4 className="font-semibold text-lg mb-2 text-emerald-400">
-                      Backup Types
-                    </h4>
-                    <ul className="text-sm text-zinc-400 space-y-2 list-disc list-inside">
-                      <li><strong>Platform backup:</strong> Backs up the main AtlasHub database</li>
-                      <li><strong>Project backup:</strong> Backs up a specific project database</li>
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
                     </ul>
                   </div>
 
@@ -741,12 +714,8 @@ POST /admin/projects/:id/data-tools/import
                   <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/10">
                     <h4 className="font-medium text-blue-400 mb-2">Dashboard Access</h4>
                     <p className="text-sm text-zinc-300">
-<<<<<<< HEAD
                       All backup and data tools features are available in the dashboard under each
                       project&apos;s Data Tools section.
-=======
-                      All backup and data tools features are available in the dashboard under each project&apos;s Data Tools section.
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
                     </p>
                   </div>
                 </CardContent>

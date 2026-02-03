@@ -1,0 +1,55 @@
+# Dependencies - exclude all node_modules to avoid symlink issues
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+.next
+**/.next
+out
+**/out
+
+# Development files
+.git
+.gitignore
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+**/__tests__
+**/*.test.ts
+**/*.test.js
+**/*.spec.ts
+**/*.spec.js
+coverage
+**/coverage
+
+# Logs
+*.log
+logs
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+!gateway/Dockerfile
+!dashboard/Dockerfile
+!scheduler/Dockerfile
+
+# Misc
+.turbo
+.eslintcache
+*.tsbuildinfo

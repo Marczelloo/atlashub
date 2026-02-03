@@ -233,7 +233,7 @@ export interface ImportTableInput {
   tableName: string;
   format: 'csv' | 'json';
   objectKey: string;
-  mode: 'insert' | 'upsert' | 'truncate-insert';
+  mode: 'insert' | 'upsert';
 }
 
 export const api = {

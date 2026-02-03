@@ -52,7 +52,7 @@ export default function DataToolsPage() {
   const [importForm, setImportForm] = useState({
     projectId: '',
     tableName: '',
-    mode: 'insert' as 'insert' | 'upsert' | 'truncate-insert',
+    mode: 'insert' as 'insert' | 'upsert',
     format: 'csv' as 'csv' | 'json',
     file: null as File | null,
   });
@@ -124,12 +124,24 @@ export default function DataToolsPage() {
   async function loadData() {
     try {
       setLoading(true);
-      const [jobsRes, projectsRes] = await Promise.all([
-        api.listImportExportJobs(),
-        api.listProjects(),
-      ]);
-      setJobs(jobsRes.data);
+      const projectsRes = await api.listProjects();
       setProjects(projectsRes.data);
+
+      // Load jobs from all projects
+      const allJobs: ImportExportJob[] = [];
+      await Promise.all(
+        projectsRes.data.map(async (project) => {
+          try {
+            const jobsRes = await api.listDataToolsJobs(project.id);
+            allJobs.push(...jobsRes.data);
+          } catch {
+            // Project may not have data tools enabled, skip
+          }
+        })
+      );
+      setJobs(
+        allJobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -146,18 +158,29 @@ export default function DataToolsPage() {
     try {
       setUploading(true);
       setError(null);
-      await api.exportTable({
-        projectId: exportForm.projectId,
-        tableName: exportForm.tableName,
-        format: exportForm.format,
+      const exportData = await api.exportTable(
+        exportForm.projectId,
+        exportForm.tableName,
+        exportForm.format
+      );
+      // Trigger download
+      const blob = new Blob([exportData], {
+        type: exportForm.format === 'csv' ? 'text/csv' : 'application/json',
       });
-      setSuccess('Export started. You can download it once complete.');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${exportForm.tableName}.${exportForm.format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setSuccess('Export completed successfully.');
       setExportDialogOpen(false);
       setExportForm({ projectId: '', tableName: '', format: 'csv' });
       loadData();
       setTimeout(() => setSuccess(null), 5000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start export');
+      setError(err instanceof Error ? err.message : 'Failed to export');
     } finally {
       setUploading(false);
     }
@@ -178,30 +201,17 @@ export default function DataToolsPage() {
       setUploading(true);
       setError(null);
 
-      // 1. Get presigned upload URL
-      const contentType = importForm.format === 'csv' ? 'text/csv' : 'application/json';
-      const urlRes = await api.getImportUploadUrl({
-        projectId: importForm.projectId,
-        tableName: importForm.tableName,
-        format: importForm.format,
-        contentType,
-      });
+      // Read file content
+      const fileContent = await importForm.file.text();
 
-      // 2. Upload file to MinIO
-      await fetch(urlRes.data.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': contentType },
-        body: importForm.file,
-      });
-
-      // 3. Start import job
-      await api.importTable({
-        projectId: importForm.projectId,
-        tableName: importForm.tableName,
-        format: importForm.format,
-        objectKey: urlRes.data.objectKey,
-        mode: importForm.mode,
-      });
+      // Import table directly with data
+      await api.importTable(
+        importForm.projectId,
+        importForm.tableName,
+        importForm.format,
+        fileContent,
+        importForm.mode
+      );
 
       setSuccess('Import started. Data will be imported shortly.');
       setImportDialogOpen(false);
@@ -227,9 +237,20 @@ export default function DataToolsPage() {
       return;
     }
 
+    if (!job.objectKey) {
+      setError('No file available for download');
+      return;
+    }
+
     try {
-      const result = await api.getExportDownloadUrl(job.id);
-      window.open(result.data.downloadUrl, '_blank');
+      // Find the project to get bucket name
+      const project = projects.find((p) => p.id === job.projectId);
+      if (!project) {
+        setError('Project not found');
+        return;
+      }
+      const result = await api.getSignedDownloadUrl(job.projectId, 'exports', job.objectKey);
+      window.open(result.downloadUrl, '_blank');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to get download URL');
     }
@@ -560,20 +581,18 @@ export default function DataToolsPage() {
                 onChange={(e) =>
                   setImportForm({
                     ...importForm,
-                    mode: e.target.value as 'insert' | 'upsert' | 'truncate-insert',
+                    mode: e.target.value as 'insert' | 'upsert',
                   })
                 }
                 className="w-full px-3 py-2 rounded-md border bg-background"
               >
                 <option value="insert">Insert (add new rows)</option>
                 <option value="upsert">Upsert (insert or update by primary key)</option>
-                <option value="truncate-insert">Replace All (truncate then insert)</option>
               </select>
               <p className="text-xs text-muted-foreground">
                 {importForm.mode === 'insert' && 'Inserts rows without checking for duplicates.'}
                 {importForm.mode === 'upsert' &&
                   'Updates existing rows by primary key, inserts new ones.'}
-                {importForm.mode === 'truncate-insert' && 'Deletes all existing data then inserts.'}
               </p>
             </div>
 

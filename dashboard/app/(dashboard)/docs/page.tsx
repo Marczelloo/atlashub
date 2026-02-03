@@ -422,12 +422,8 @@ const { objects } = await res.json();`}
                   <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10">
                     <h4 className="font-medium text-amber-400 mb-2">Secret Key Required</h4>
                     <p className="text-sm text-zinc-300">
-<<<<<<< HEAD
                       All schema operations require your secret key for security. Never expose DDL
-                      endpoints to client-side code.
-=======
-                      All schema operations require your secret key for security. Never expose DDL endpoints to client-side code.
->>>>>>> 9dfe009ac3cb9e92329e076eb72381879f14fcbd
+
                     </p>
                   </div>
 

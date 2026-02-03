@@ -12,6 +12,7 @@ RUN echo "node-linker=hoisted" > .npmrc
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY scheduler/package.json ./scheduler/
+COPY tsconfig.base.json ./
 
 # Install all dependencies
 RUN pnpm install --frozen-lockfile

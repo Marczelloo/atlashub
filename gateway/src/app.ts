@@ -119,7 +119,7 @@ export async function buildApp() {
   await app.register(cors, {
     origin: config.corsOrigins,
     credentials: true, // Allow cookies
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'x-api-key',

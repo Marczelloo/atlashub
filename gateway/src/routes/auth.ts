@@ -2,7 +2,9 @@ import type { FastifyPluginAsync, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authService } from '../services/auth.js';
 import { config } from '../config/env.js';
-import { BadRequestError } from '../lib/errors.js';
+import { BadRequestError, TooManyRequestsError } from '../lib/errors.js';
+import { getAuthRateLimiter } from '../middleware/auth-rate-limit.js';
+import { validatePassword } from '../utils/password-validator.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -49,20 +51,38 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
 
     const { email, password } = parsed.data;
-    const user = await authService.validateCredentials(email, password);
-    const token = await authService.generateToken(user);
+    const ip = request.ip;
+    const rateLimiter = getAuthRateLimiter();
 
-    reply.setCookie(COOKIE_NAME, token, getCookieOptions());
+    // Check rate limit before attempting login
+    try {
+      rateLimiter.checkLimit(ip, email);
+    } catch {
+      throw new TooManyRequestsError('Too many failed login attempts. Please try again later.');
+    }
 
-    return reply.send({
-      data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
+    try {
+      const user = await authService.validateCredentials(email, password);
+
+      // Reset rate limit on successful login
+      rateLimiter.resetAttempts(ip, email);
+
+      const token = await authService.generateToken(user);
+      reply.setCookie(COOKIE_NAME, token, getCookieOptions());
+
+      return reply.send({
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      // Don't reset rate limit on failure
+      throw error;
+    }
   });
 
   // Register (requires invite key)
@@ -73,6 +93,15 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
 
     const { email, password, inviteKey } = parsed.data;
+
+    // Validate password strength
+    const passwordResult = validatePassword(password);
+    if (!passwordResult.valid) {
+      throw new BadRequestError(
+        'Password does not meet requirements',
+        passwordResult.errors
+      );
+    }
 
     // Validate invite key
     const invite = await authService.validateInviteKey(inviteKey);
@@ -160,8 +189,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
     const { email, password } = parsed.data;
 
-    if (password.length < 8) {
-      throw new BadRequestError('Password must be at least 8 characters');
+    // Validate password strength
+    const passwordResult = validatePassword(password);
+    if (!passwordResult.valid) {
+      throw new BadRequestError(
+        'Password does not meet requirements',
+        passwordResult.errors
+      );
     }
 
     const user = await authService.createUser(email, password, 'admin');

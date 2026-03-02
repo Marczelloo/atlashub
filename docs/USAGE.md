@@ -2,6 +2,8 @@
 
 This document provides complete API documentation for integrating AtlasHub with your applications.
 
+> **For Admin API, Health, Auth, Backups, Cron Jobs, and Settings endpoints, see [API-REFERENCE.md](API-REFERENCE.md) for the complete API reference.**
+
 ## Base URL
 
 All API requests should be made to your AtlasHub gateway URL:
@@ -231,6 +233,12 @@ Base path: `${ATLASHUB_API_URL}/v1/db/schema`
 
 All schema management endpoints **require a secret key**. These operations modify your database structure.
 
+Available operations:
+- **Tables:** Create, Drop, Rename
+- **Columns:** Add, Drop, Rename, Alter
+- **Indexes:** Create, Drop
+- **Data:** Truncate
+
 ### Create Table
 
 Create a new table with specified columns.
@@ -415,6 +423,126 @@ x-api-key: <secret-key>
 {
   "oldName": "title",
   "newName": "headline"
+}
+```
+
+---
+
+### Alter Column
+
+Modify column properties including type, nullable, default, and constraints.
+
+```http
+PATCH /v1/db/schema/tables/:table/columns/:column
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Change column type:**
+
+```json
+{
+  "type": "varchar(500)",
+  "using": "description::varchar(500)"
+}
+```
+
+**Set nullable and default:**
+
+```json
+{
+  "nullable": true,
+  "defaultValue": "'draft'"
+}
+```
+
+**Add CHECK constraint:**
+
+```json
+{
+  "addConstraint": {
+    "name": "positive_price",
+    "type": "check",
+    "expression": "price >= 0"
+  }
+}
+```
+
+**Drop constraint:**
+
+```json
+{
+  "dropConstraint": "old_check_constraint"
+}
+```
+
+---
+
+### Create Index
+
+Create indexes for better query performance.
+
+```http
+POST /v1/db/schema/indexes
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+**Simple index:**
+
+```json
+{
+  "name": "idx_users_email",
+  "table": "users",
+  "columns": ["email"]
+}
+```
+
+**Unique partial index:**
+
+```json
+{
+  "name": "idx_unique_active_email",
+  "table": "users",
+  "columns": ["email"],
+  "unique": true,
+  "where": "deleted_at IS NULL",
+  "ifNotExists": true
+}
+```
+
+---
+
+### Drop Index
+
+```http
+DELETE /v1/db/schema/indexes/:name
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+```json
+{
+  "ifExists": true
+}
+```
+
+---
+
+### Truncate Table
+
+Quickly empty a table (faster than DELETE).
+
+```http
+POST /v1/db/schema/tables/:table/truncate
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+```json
+{
+  "restartIdentity": true,
+  "cascade": false
 }
 ```
 

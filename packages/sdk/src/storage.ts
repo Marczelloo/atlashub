@@ -5,7 +5,6 @@
 
 import type {
   ApiResponse,
-  AtlasHubError,
   DownloadOptions,
   ListObjectsOptions,
   SignedDownloadResponse,

@@ -350,9 +350,9 @@ export function trackBytesTransferred(
 ): void {
   const metrics = getStorageMetrics();
 
-  // We record a count with the bytes as a separate metric observation
-  // This allows calculating total bytes via sum
-  metrics.getOperationsCounter().inc(1, {
+  // Record the byte count as the metric value to track total data transferred
+  // The counter value represents cumulative bytes, allowing Prometheus to track totals
+  metrics.getOperationsCounter().inc(bytes, {
     operation: `${operation}_bytes`,
     bucket,
     status: 'success',

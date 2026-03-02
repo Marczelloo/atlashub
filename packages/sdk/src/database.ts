@@ -20,7 +20,7 @@ export type { Row } from './types.js';
 // Filter Class - Handles individual filter conditions
 // ============================================================
 
-class FilterBuilder<T extends Record<string, unknown> = Record<string, unknown>> {
+class FilterBuilder {
   protected _filters: ParsedFilter[] = [];
   protected _select: string | string[] = '*';
   protected _order: ParsedOrder | undefined;
@@ -243,7 +243,7 @@ class FilterBuilder<T extends Record<string, unknown> = Record<string, unknown>>
 // Query Builder Class - Main query interface
 // ============================================================
 
-export class QueryBuilder<T extends Record<string, unknown> = Record<string, unknown>> extends FilterBuilder<T> {
+export class QueryBuilder<T extends Record<string, unknown> = Record<string, unknown>> extends FilterBuilder {
   private _table: string;
   private _client: DatabaseClient;
 
@@ -345,8 +345,8 @@ export class QueryBuilder<T extends Record<string, unknown> = Record<string, unk
    * @example
    * const { data, error } = await client.from('users').delete().eq('id', 1)
    */
-  delete(): DeleteQueryBuilder<T> {
-    return new DeleteQueryBuilder<T>(
+  delete(): DeleteQueryBuilder {
+    return new DeleteQueryBuilder(
       this._table,
       this._client,
       [...this._filters]
@@ -373,7 +373,7 @@ export class QueryBuilder<T extends Record<string, unknown> = Record<string, unk
 // Update Query Builder
 // ============================================================
 
-class UpdateQueryBuilder<T extends Record<string, unknown> = Record<string, unknown>> extends FilterBuilder<T> {
+class UpdateQueryBuilder<T extends Record<string, unknown> = Record<string, unknown>> extends FilterBuilder {
   private _table: string;
   private _client: DatabaseClient;
   private _values: Partial<T>;
@@ -428,7 +428,7 @@ class UpdateQueryBuilder<T extends Record<string, unknown> = Record<string, unkn
 // Delete Query Builder
 // ============================================================
 
-class DeleteQueryBuilder<T extends Record<string, unknown> = Record<string, unknown>> extends FilterBuilder<T> {
+class DeleteQueryBuilder extends FilterBuilder {
   private _table: string;
   private _client: DatabaseClient;
 

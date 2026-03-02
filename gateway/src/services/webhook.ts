@@ -1,7 +1,5 @@
-import { randomUUID } from 'crypto';
 import { createHmac, createHash, timingSafeEqual } from 'crypto';
 import { platformDb } from '../db/platform.js';
-import { encrypt, decrypt } from '../lib/crypto.js';
 import { NotFoundError, BadRequestError } from '../lib/errors.js';
 import { auditService } from './audit.js';
 

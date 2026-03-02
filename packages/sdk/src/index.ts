@@ -98,4 +98,4 @@ export {
 // Default Export
 // ============================================================
 
-export default createClient;
+export { createClient as default } from './client.js';

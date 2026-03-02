@@ -3,8 +3,8 @@
  * Main client class for interacting with AtlasHub services
  */
 
-import { AtlasHubError, type AtlasHubClientOptions, type ApiResponse } from './types.js';
-import { DatabaseClient, QueryBuilder, type Row } from './database.js';
+import { AtlasHubError, type AtlasHubClientOptions, type ApiResponse, type Row } from './types.js';
+import { DatabaseClient, QueryBuilder } from './database.js';
 import { AuthClient } from './auth.js';
 import { StorageClient, BucketRef } from './storage.js';
 
@@ -368,7 +368,7 @@ class StorageRef {
     bucket: string;
     path: string;
     file: File | Blob;
-    contentType?: string;
+    contentType: string;
     maxSize?: number;
   }) {
     return this._client.upload(options);

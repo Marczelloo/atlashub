@@ -59,5 +59,10 @@ export const auditService = {
     // SQL
     SQL_EXECUTED: 'sql.executed',
     TABLE_CREATED: 'table.created',
+
+    // Webhooks
+    WEBHOOK_CREATED: 'webhook.created',
+    WEBHOOK_UPDATED: 'webhook.updated',
+    WEBHOOK_DELETED: 'webhook.deleted',
   },
 };

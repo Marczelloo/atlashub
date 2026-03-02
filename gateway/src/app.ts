@@ -11,6 +11,9 @@ import { authRoutes } from './routes/auth.js';
 import { errorHandler } from './lib/errors.js';
 import { runtimeSettings } from './services/runtime-settings.js';
 import { authService } from './services/auth.js';
+import { registerSecurityHeaders } from './middleware/security-headers.js';
+import { setValidator } from './lib/sql-builder.js';
+import { validateIdentifier } from './utils/identifier-validator.js';
 
 const COOKIE_NAME = 'atlashub_session';
 
@@ -19,32 +22,19 @@ const adminSessionCache = new Map<string, { isAdmin: boolean; expiresAt: number 
 const SESSION_CACHE_TTL_MS = 60000; // Cache admin status for 1 minute
 
 /**
- * Check if request is from an admin user (for rate limit bypass)
- * Uses caching to avoid JWT verification on every request
+ * Populate admin session cache for rate limiting decisions.
+ * This hook runs before rate limiting so the cache is available.
  */
-async function isAdminRequest(request: {
+async function populateAdminCache(request: {
   cookies: Record<string, string | undefined>;
   headers: Record<string, string | unknown>;
-}): Promise<boolean> {
-  // Dev mode: check for dev admin token
-  if (config.isDev && config.security.devAdminToken) {
-    const devToken = request.headers['x-dev-admin-token'];
-    if (devToken === config.security.devAdminToken) {
-      return true;
-    }
-  }
-
-  // Check for admin session cookie
+}): Promise<void> {
   const token = request.cookies[COOKIE_NAME];
-  if (!token) {
-    return false;
-  }
+  if (!token) return;
 
-  // Check cache first
+  // Check if already cached and valid
   const cached = adminSessionCache.get(token);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.isAdmin;
-  }
+  if (cached && cached.expiresAt > Date.now()) return;
 
   // Verify session and check admin status
   try {
@@ -67,15 +57,12 @@ async function isAdminRequest(request: {
         }
       }
     }
-
-    return isAdmin;
   } catch {
     // Invalid session - cache as non-admin
     adminSessionCache.set(token, {
       isAdmin: false,
       expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
     });
-    return false;
   }
 }
 
@@ -110,10 +97,21 @@ export async function buildApp() {
   // Global error handler
   app.setErrorHandler(errorHandler);
 
-  // Security headers
+  // Security headers via Helmet (CSP handled by our middleware)
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: false, // We handle CSP in our middleware
+    hsts: {
+      maxAge: 31536000,
+      includeSubdomains: true,
+      preload: true,
+    },
   });
+
+  // Security headers (CSP, X-Frame-Options, etc.)
+  await registerSecurityHeaders(app);
+
+  // Set SQL identifier validator
+  setValidator(validateIdentifier);
 
   // CORS for public API
   await app.register(cors, {
@@ -132,38 +130,38 @@ export async function buildApp() {
   // Cookie support
   await app.register(cookie);
 
+  // Populate admin cache before rate limiting
+  app.addHook('onRequest', async (request) => {
+    await populateAdminCache(request);
+  });
+
   // Rate limiting with dynamic max value and admin bypass
   // Note: timeWindow must be a number (not function) - changes require restart
   // max can be a function and is evaluated per-request
   await app.register(rateLimit, {
     max: (request) => {
-      // Check admin bypass (sync wrapper for cached results)
       const token = request.cookies[COOKIE_NAME];
       if (token) {
         const cached = adminSessionCache.get(token);
         if (cached && cached.expiresAt > Date.now() && cached.isAdmin) {
-          return 0; // 0 = unlimited for admins
+          // Admins get elevated limits, but not unlimited
+          return Math.max(config.security.adminRateLimitFloor, runtimeSettings.getRateLimitMax());
         }
       }
-      // Dev admin token bypass
+      // Dev admin token bypass (development only)
       if (config.isDev && config.security.devAdminToken) {
         const devToken = request.headers['x-dev-admin-token'];
         if (devToken === config.security.devAdminToken) {
-          return 0; // Unlimited for dev admin
+          return Math.max(config.security.adminRateLimitFloor, runtimeSettings.getRateLimitMax());
         }
       }
       return runtimeSettings.getRateLimitMax();
     },
-    timeWindow: config.rateLimitWindowMs, // Fixed at startup (changes require restart)
+    timeWindow: config.rateLimitWindowMs,
     keyGenerator: (request) => {
-      // Use project ID from context if available, otherwise IP
       const projectId = (request as unknown as { projectContext?: { projectId: string } })
         .projectContext?.projectId;
       return projectId || request.ip;
-    },
-    allowList: async (request) => {
-      // Allow admins to bypass rate limiting entirely
-      return isAdminRequest(request);
     },
   });
 

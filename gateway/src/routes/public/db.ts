@@ -3,6 +3,7 @@ import { tableNameSchema, insertBodySchema, updateBodySchema } from '@atlashub/s
 import type { ProjectContext } from '@atlashub/shared';
 import { z } from 'zod';
 import { crudService } from '../../services/crud.js';
+import { webhookService } from '../../services/webhook.js';
 import { BadRequestError, ForbiddenError } from '../../lib/errors.js';
 import { parseFilters, parseOrder, parseSelect } from '../../lib/query-parser.js';
 
@@ -154,6 +155,21 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
     const { rows, returning } = bodyResult.data;
 
     const result = await crudService.insert(projectContext.projectId, table, rows, returning);
+
+    // Trigger webhooks for each inserted record
+    for (const record of result.length > 0 ? result : rows) {
+      webhookService.triggerWebhooks({
+        eventType: 'record.created',
+        projectId: projectContext.projectId,
+        tableName: table,
+        record: record,
+        timestamp: new Date(),
+      }).catch((error) => {
+        // Log but don't fail the request
+        request.log.error({ error, table, projectId: projectContext.projectId }, 'Webhook trigger failed');
+      });
+    }
+
     return reply.status(201).send({ data: result });
   });
 
@@ -180,6 +196,16 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         throw new BadRequestError('At least one filter is required for UPDATE');
       }
 
+      // Fetch old records before update for webhook payload (if returning is requested)
+      let oldRecords: Record<string, unknown>[] = [];
+      if (returning) {
+        const oldResult = await crudService.select(projectContext.projectId, table, {
+          filters,
+          limit: 100, // Reasonable limit for webhook payloads
+        });
+        oldRecords = oldResult.rows;
+      }
+
       const result = await crudService.update(
         projectContext.projectId,
         table,
@@ -187,6 +213,37 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         filters,
         returning
       );
+
+      // Trigger webhooks for each updated record
+      if (returning && result.length > 0) {
+        for (let i = 0; i < result.length; i++) {
+          const newRecord = result[i];
+          const oldRecord = oldRecords[i];
+
+          webhookService.triggerWebhooks({
+            eventType: 'record.updated',
+            projectId: projectContext.projectId,
+            tableName: table,
+            record: newRecord,
+            oldRecord: oldRecord,
+            timestamp: new Date(),
+          }).catch((error) => {
+            request.log.error({ error, table, projectId: projectContext.projectId }, 'Webhook trigger failed');
+          });
+        }
+      } else if (!returning) {
+        // If not returning, trigger a generic webhook without record details
+        webhookService.triggerWebhooks({
+          eventType: 'record.updated',
+          projectId: projectContext.projectId,
+          tableName: table,
+          record: values,
+          timestamp: new Date(),
+        }).catch((error) => {
+          request.log.error({ error, table, projectId: projectContext.projectId }, 'Webhook trigger failed');
+        });
+      }
+
       return reply.send({ data: result });
     }
   );
@@ -208,7 +265,27 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         throw new BadRequestError('At least one filter is required for DELETE');
       }
 
+      // Fetch records before delete for webhook payload
+      const recordsToDelete = await crudService.select(projectContext.projectId, table, {
+        filters,
+        limit: 100, // Reasonable limit for webhook payloads
+      });
+
       const result = await crudService.delete(projectContext.projectId, table, filters);
+
+      // Trigger webhooks for each deleted record
+      for (const record of recordsToDelete.rows) {
+        webhookService.triggerWebhooks({
+          eventType: 'record.deleted',
+          projectId: projectContext.projectId,
+          tableName: table,
+          record: record,
+          timestamp: new Date(),
+        }).catch((error) => {
+          request.log.error({ error, table, projectId: projectContext.projectId }, 'Webhook trigger failed');
+        });
+      }
+
       return reply.send({ data: { deletedCount: result.rowCount } });
     }
   );

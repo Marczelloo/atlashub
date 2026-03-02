@@ -234,14 +234,14 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   );
 
   // Get available event types
-  fastify.get('/events', async (request, reply) => {
+  fastify.get('/events', async (_request: unknown, reply) => {
     return reply.send({
       data: {
         events: WEBHOOK_EVENTS.map((event) => ({
           type: event,
           description: getEventDescription(event),
         })),
-      };
+      },
     });
   });
 };

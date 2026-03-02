@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { buildWhereClause, buildOrderClause, buildSelectColumns } from './sql-builder.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { buildWhereClause, buildOrderClause, buildSelectColumns, setValidator } from './sql-builder.js';
+import { validateIdentifier } from '../utils/identifier-validator.js';
+
+// Set the validator for tests
+beforeAll(() => {
+  setValidator(validateIdentifier);
+});
 
 describe('buildWhereClause', () => {
   it('returns empty for no filters', () => {
@@ -64,5 +70,24 @@ describe('buildSelectColumns', () => {
 
   it('returns * if no valid columns', () => {
     expect(buildSelectColumns(['invalid'], ['id', 'name'])).toBe('*');
+  });
+});
+
+describe('security', () => {
+  it('should reject malicious column names in where clause', () => {
+    expect(() => buildWhereClause([
+      { column: 'id; DROP TABLE users--', operator: 'eq', value: 1 }
+    ])).toThrow();
+  });
+
+  it('should reject reserved words in order clause', () => {
+    expect(() => buildOrderClause({ column: 'select', direction: 'asc' }))
+      .toThrow();
+  });
+
+  it('should reject invalid column names in select', () => {
+    // Use an allowed column name that is a reserved word to trigger validation error
+    expect(() => buildSelectColumns(['id', 'select'], ['id', 'select', 'name']))
+      .toThrow();
   });
 });

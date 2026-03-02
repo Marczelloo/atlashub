@@ -1,5 +1,15 @@
 import type { ParsedFilter } from '@atlashub/shared';
 
+// Validator function type
+type IdentifierValidator = (name: string, type: 'table' | 'column') => void;
+
+// Default no-op validator (for backwards compatibility)
+let validator: IdentifierValidator = () => {};
+
+export function setValidator(fn: IdentifierValidator): void {
+  validator = fn;
+}
+
 export function buildWhereClause(
   filters: ParsedFilter[],
   startParamIndex = 1
@@ -13,6 +23,7 @@ export function buildWhereClause(
   let paramIndex = startParamIndex;
 
   for (const filter of filters) {
+    validator(filter.column, 'column');
     const quotedColumn = `"${filter.column}"`;
 
     switch (filter.operator) {
@@ -77,6 +88,7 @@ export function buildOrderClause(
   order: { column: string; direction: 'asc' | 'desc' } | undefined
 ): string {
   if (!order) return '';
+  validator(order.column, 'column');
   return `ORDER BY "${order.column}" ${order.direction.toUpperCase()}`;
 }
 
@@ -89,6 +101,11 @@ export function buildSelectColumns(select: string[] | '*', allowedColumns: strin
   const validColumns = select.filter((col) => allowedColumns.includes(col));
   if (validColumns.length === 0) {
     return '*';
+  }
+
+  // Validate all valid column names through the validator
+  for (const col of validColumns) {
+    validator(col, 'column');
   }
 
   return validColumns.map((col) => `"${col}"`).join(', ');

@@ -30,7 +30,8 @@ function getCookieOptions() {
   } = {
     path: '/',
     httpOnly: true,
-    secure: config.isProduction,
+    // Secure must be true when sameSite='none' - required for cross-subdomain cookies
+    secure: config.isProduction || !!config.cookieDomain,
     sameSite: config.cookieDomain ? 'none' : 'lax', // 'none' required for cross-subdomain with credentials
     maxAge: config.security.sessionExpiryHours * 60 * 60, // in seconds
   };

@@ -3,8 +3,11 @@ import type { ParsedFilter } from '@atlashub/shared';
 // Validator function type
 type IdentifierValidator = (name: string, type: 'table' | 'column') => void;
 
-// Default no-op validator (for backwards compatibility)
-let validator: IdentifierValidator = () => {};
+// Import the default validator for use when none is set
+import { validateIdentifier } from '../utils/identifier-validator.js';
+
+// Default validator that actually validates (security fix)
+let validator: IdentifierValidator = validateIdentifier;
 
 export function setValidator(fn: IdentifierValidator): void {
   validator = fn;

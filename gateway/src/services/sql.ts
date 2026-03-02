@@ -42,13 +42,14 @@ export const sqlService = {
 
     const startTime = Date.now();
 
-    // Set statement timeout
-    const timeoutSql = `SET statement_timeout = '${config.query.statementTimeoutMs}ms'`;
+    // Set statement timeout using parameterized query (security fix)
+    await projectDb.queryAsOwner(
+      projectId,
+      'SET statement_timeout = $1',
+      [`${config.query.statementTimeoutMs}ms`]
+    );
 
     try {
-      // Set timeout first
-      await projectDb.queryAsOwner(projectId, timeoutSql);
-
       // If it's a SELECT query, add LIMIT if not present
       let finalSql = sql;
       if (isSelectQuery(sql)) {
@@ -56,6 +57,7 @@ export const sqlService = {
         if (!hasLimit) {
           // Remove trailing semicolon if present
           finalSql = sql.replace(/;\s*$/, '');
+          // Use validated integer from config (safe because it's a number)
           finalSql = `${finalSql} LIMIT ${config.query.maxRowsPerQuery}`;
         }
       }

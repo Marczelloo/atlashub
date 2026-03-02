@@ -13,6 +13,35 @@ import { config } from '../config/env.js';
 import { platformDb } from '../db/platform.js';
 import { NotFoundError, BadRequestError } from '../lib/errors.js';
 
+// Path traversal prevention - validates object keys don't escape bucket scope
+function validateObjectKey(key: string): void {
+  // Normalize the path to prevent encoding bypasses
+  const normalized = key.normalize('NFC');
+
+  // Block path traversal patterns
+  const dangerousPatterns = [
+    '..',
+    '\x00', // null byte
+    '//',   // double slashes that could normalize
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (normalized.includes(pattern)) {
+      throw new BadRequestError('Invalid object key: path traversal detected');
+    }
+  }
+
+  // Block absolute paths
+  if (normalized.startsWith('/') || normalized.startsWith('\\')) {
+    throw new BadRequestError('Invalid object key: absolute paths not allowed');
+  }
+
+  // Block Windows drive letters
+  if (/^[a-zA-Z]:/.test(normalized)) {
+    throw new BadRequestError('Invalid object key: drive letters not allowed');
+  }
+}
+
 const s3Client = new S3Client({
   endpoint: `http${config.minio.useSSL ? 's' : ''}://${config.minio.endpoint}:${config.minio.port}`,
   region: config.minio.region,
@@ -82,6 +111,9 @@ export const storageService = {
       throw new BadRequestError(`maxSize cannot exceed ${config.storage.maxUploadSizeBytes} bytes`);
     }
 
+    // Validate path to prevent path traversal
+    validateObjectKey(path);
+
     const physicalBucket = getPhysicalBucketName(projectId);
     const objectKey = `${logicalBucket}/${path}`;
     const expiresIn = config.storage.presignedUrlExpirySeconds;
@@ -117,6 +149,9 @@ export const storageService = {
     const physicalBucket = getPhysicalBucketName(projectId);
     const expiresIn = config.storage.presignedUrlExpirySeconds;
 
+    // Validate object key to prevent path traversal
+    validateObjectKey(objectKey);
+
     // Ensure the object key starts with the logical bucket prefix
     const fullKey = objectKey.startsWith(`${logicalBucket}/`)
       ? objectKey
@@ -139,6 +174,12 @@ export const storageService = {
     limit = 100
   ): Promise<{ objects: Array<{ key: string; size: number; lastModified: Date }> }> {
     const physicalBucket = getPhysicalBucketName(projectId);
+
+    // Validate prefix to prevent path traversal
+    if (prefix) {
+      validateObjectKey(prefix);
+    }
+
     const fullPrefix = prefix ? `${logicalBucket}/${prefix}` : `${logicalBucket}/`;
 
     const result = await s3Client.send(
@@ -160,6 +201,10 @@ export const storageService = {
 
   async deleteObject(projectId: string, logicalBucket: string, objectKey: string): Promise<void> {
     const physicalBucket = getPhysicalBucketName(projectId);
+
+    // Validate object key to prevent path traversal
+    validateObjectKey(objectKey);
+
     const fullKey = objectKey.startsWith(`${logicalBucket}/`)
       ? objectKey
       : `${logicalBucket}/${objectKey}`;

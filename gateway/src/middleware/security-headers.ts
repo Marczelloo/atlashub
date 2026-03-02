@@ -48,11 +48,9 @@ export function buildSecurityHeaders(isDev: boolean): Record<string, string> {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()',
+    // Always set CSP - use relaxed directives in dev, strict in prod
+    'Content-Security-Policy': buildCSPDirectives(isDev),
   };
-
-  if (!isDev) {
-    headers['Content-Security-Policy'] = buildCSPDirectives(false);
-  }
 
   return headers;
 }

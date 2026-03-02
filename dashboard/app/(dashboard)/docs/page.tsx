@@ -22,6 +22,7 @@ const sections = [
   { id: 'database', label: 'Database', icon: Database },
   { id: 'schema', label: 'Schema (DDL)', icon: Wrench },
   { id: 'storage', label: 'Storage', icon: HardDrive },
+  { id: 'admin', label: 'Admin API', icon: Wrench },
   { id: 'cron', label: 'Cron Jobs', icon: Clock },
   { id: 'backups', label: 'Backups', icon: Archive },
   { id: 'authentication', label: 'Authentication', icon: Key },
@@ -535,6 +536,292 @@ const { objects } = await res.json();`}
 });`}
                     />
                   </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-purple-400">
+                      PATCH /v1/db/schema/tables/:table/columns/:column
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Alter column type, nullable, default, constraints</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/products/columns/price', {
+  method: 'PATCH',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    type: 'decimal(10,2)',
+    using: 'price::decimal(10,2)',
+    nullable: false,
+    addConstraint: {
+      name: 'positive_price',
+      type: 'check',
+      expression: 'price >= 0'
+    }
+  })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-blue-400">
+                      POST /v1/db/schema/indexes
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Create an index</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/indexes', {
+  method: 'POST',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'idx_users_email',
+    table: 'users',
+    columns: ['email'],
+    unique: true,
+    where: 'deleted_at IS NULL'  // Partial index
+  })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-red-400">
+                      DELETE /v1/db/schema/indexes/:name
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Drop an index</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/indexes/idx_old_index', {
+  method: 'DELETE',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ ifExists: true })
+});`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2 text-red-400">
+                      POST /v1/db/schema/tables/:table/truncate
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">Empty a table quickly (irreversible!)</p>
+                    <SyntaxHighlighter
+                      code={`const res = await fetch('/v1/db/schema/tables/logs/truncate', {
+  method: 'POST',
+  headers: {
+    'x-api-key': secretKey,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    restartIdentity: true,  // Reset sequences
+    cascade: false
+  })
+});`}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeSection === 'admin' && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Admin API Reference</CardTitle>
+                  <CardDescription>Administrative endpoints for managing AtlasHub</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="p-4 rounded-lg border border-blue-500/30 bg-blue-500/10">
+                    <h4 className="font-medium text-blue-400 mb-2">Authentication Required</h4>
+                    <p className="text-sm text-zinc-300">
+                      All admin endpoints require an authenticated admin session. Use the dashboard
+                      or session cookie for API access.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Base URL</h4>
+                    <SyntaxHighlighter code="/admin" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Health &amp; Auth Endpoints</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold mb-2 text-emerald-400">Health Check</h4>
+                    <SyntaxHighlighter
+                      code={`// Check service status
+GET /health
+// Response: { "status": "ok" }
+
+// Check database connection
+GET /health/ready
+// Response: { "status": "ok", "database": "connected" }`}
+                    />
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2 text-blue-400">Authentication</h4>
+                    <SyntaxHighlighter
+                      code={`// Login
+POST /auth/login
+{ "email": "admin@example.com", "password": "password" }
+
+// Logout
+POST /auth/logout
+
+// Get current user
+GET /auth/me
+
+// Check setup status
+GET /auth/setup-status
+
+// Initial admin setup (only when no users exist)
+POST /auth/setup
+{ "email": "admin@example.com", "password": "password" }`}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Project Management</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SyntaxHighlighter
+                    code={`// List all projects
+GET /admin/projects
+
+// Get project details
+GET /admin/projects/:id
+
+// Create project
+POST /admin/projects
+{ "name": "My Project", "description": "Description" }
+
+// Delete project
+DELETE /admin/projects/:id
+
+// List API keys
+GET /admin/projects/:id/keys
+
+// Rotate API key
+POST /admin/projects/:id/keys/rotate
+{ "keyType": "secret" }
+
+// Revoke API key
+DELETE /admin/projects/:id/keys/:keyId`}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>User &amp; Invite Management</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SyntaxHighlighter
+                    code={`// List users
+GET /admin/users
+
+// Delete user (cannot delete self)
+DELETE /admin/users/:id
+
+// List invite keys
+GET /admin/invites
+
+// Create invite key
+POST /admin/invites
+{ "maxUses": 5, "expiresInDays": 30 }
+
+// Delete invite key
+DELETE /admin/invites/:id`}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Database Administration</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SyntaxHighlighter
+                    code={`// List tables in project
+GET /admin/projects/:id/tables
+
+// Get table columns
+GET /admin/projects/:id/tables/:tableName/columns
+
+// Execute raw SQL (admin only)
+POST /admin/projects/:id/sql
+{ "sql": "SELECT COUNT(*) FROM users" }`}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Settings &amp; Statistics</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SyntaxHighlighter
+                    code={`// Get platform settings
+GET /admin/settings
+
+// Update rate limits
+PUT /admin/settings/rate-limits
+{ "rateLimitMax": 200, "rateLimitWindowMs": 60000 }
+
+// Update database limits
+PUT /admin/settings/database-limits
+{ "sqlMaxRows": 2000, "sqlStatementTimeoutMs": 60000 }
+
+// Platform overview stats
+GET /admin/stats/overview
+
+// All projects stats
+GET /admin/stats/projects
+
+// Timeline data
+GET /admin/stats/timeline?days=30
+
+// Recent activity
+GET /admin/activity?limit=20`}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Storage Management</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SyntaxHighlighter
+                    code={`// List buckets
+GET /admin/projects/:id/buckets
+
+// List files in bucket
+GET /admin/projects/:id/buckets/:bucketName/files
+
+// Get signed upload URL
+POST /admin/projects/:id/signed-upload
+{ "bucket": "uploads", "path": "file.pdf", "contentType": "application/pdf" }
+
+// Get signed download URL
+GET /admin/projects/:id/buckets/:bucketName/signed-download?objectKey=uploads/file.pdf
+
+// Delete file
+DELETE /admin/projects/:id/buckets/:bucketName/files?objectKey=uploads/file.pdf`}
+                  />
                 </CardContent>
               </Card>
             </>

@@ -76,7 +76,7 @@ describe('buildSelectColumns', () => {
 describe('security', () => {
   it('should reject malicious column names in where clause', () => {
     expect(() => buildWhereClause([
-      { column: 'id; DROP TABLE users--', operator: 'eq', value: 1 }
+      { column: 'id; DROP TABLE users--', operator: 'eq', value: '1' }
     ])).toThrow();
   });
 

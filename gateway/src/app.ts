@@ -102,7 +102,7 @@ export async function buildApp() {
     contentSecurityPolicy: false, // We handle CSP in our middleware
     hsts: {
       maxAge: 31536000,
-      includeSubdomains: true,
+      includeSubDomains: true,
       preload: true,
     },
   });

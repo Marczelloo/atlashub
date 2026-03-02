@@ -1,6 +1,6 @@
 // gateway/src/utils/password-validator.test.ts
 import { describe, it, expect } from 'vitest';
-import { validatePassword, PasswordStrength } from './password-validator.js';
+import { validatePassword } from './password-validator.js';
 
 describe('password-validator', () => {
   describe('validatePassword', () => {

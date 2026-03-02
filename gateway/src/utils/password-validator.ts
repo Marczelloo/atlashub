@@ -50,7 +50,7 @@ export function validatePassword(password: string): PasswordValidationResult {
   return { valid: errors.length === 0, errors, strength };
 }
 
-function calculateStrength(password: string, errorCount: number): PasswordStrength {
+function calculateStrength(_password: string, errorCount: number): PasswordStrength {
   if (errorCount > 2) return 'weak';
   if (errorCount > 0) return 'medium';
   // Valid passwords with no errors - consider them strong if they meet minimum requirements

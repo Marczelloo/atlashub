@@ -180,7 +180,6 @@ export async function createPostsTable() {
         { name: 'id', type: 'uuid', primaryKey: true, default: 'gen_random_uuid()' },
         { name: 'title', type: 'text', nullable: false },
         { name: 'content', type: 'text' },
-<<<<<<< HEAD
         { name: 'created_at', type: 'timestamptz', default: 'now()' },
       ],
     }),

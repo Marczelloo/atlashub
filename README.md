@@ -248,7 +248,9 @@ atlashub/
 
 ## API Documentation
 
-See [docs/USAGE.md](docs/USAGE.md) for complete API documentation.
+- **[docs/API-REFERENCE.md](docs/API-REFERENCE.md)** - Complete API reference with ALL endpoints
+- **[docs/USAGE.md](docs/USAGE.md)** - Public API usage guide
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - Quick start guide for integration
 
 Quick example:
 

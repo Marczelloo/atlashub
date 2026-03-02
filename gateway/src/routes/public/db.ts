@@ -60,6 +60,38 @@ const renameColumnSchema = z.object({
   newName: z.string().min(1).max(63),
 });
 
+const alterColumnBodySchema = z.object({
+  type: z.string().min(1).max(100).optional(),
+  using: z.string().max(500).optional(),
+  nullable: z.boolean().optional(),
+  defaultValue: z.string().max(255).optional(),
+  dropDefault: z.boolean().optional(),
+  addConstraint: z.object({
+    name: z.string().min(1).max(63),
+    type: z.enum(['check', 'unique', 'not_null']),
+    expression: z.string().max(1000).optional(),
+  }).optional(),
+  dropConstraint: z.string().min(1).max(63).optional(),
+});
+
+const createIndexBodySchema = z.object({
+  name: z.string().min(1).max(63),
+  table: z.string().min(1).max(63),
+  columns: z.array(z.string().min(1).max(63)).min(1).max(10),
+  unique: z.boolean().optional().default(false),
+  where: z.string().max(500).optional(),
+  ifNotExists: z.boolean().optional().default(false),
+});
+
+const dropIndexBodySchema = z.object({
+  ifExists: z.boolean().optional().default(false),
+});
+
+const truncateBodySchema = z.object({
+  restartIdentity: z.boolean().optional().default(false),
+  cascade: z.boolean().optional().default(false),
+});
+
 // Helper to check if request has secret key permissions
 function requireSecretKey(request: FastifyRequest): void {
   if (request.projectContext.keyType !== 'secret') {
@@ -335,6 +367,107 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         request.params.table,
         parsed.data.oldName,
         parsed.data.newName
+      );
+
+      return reply.send({ data: result });
+    }
+  );
+
+  // Alter a column
+  fastify.patch<{ Params: { table: string; column: string } }>(
+    '/schema/tables/:table/columns/:column',
+    async (request, reply) => {
+      requireSecretKey(request);
+
+      const tableResult = tableNameSchema.safeParse(request.params.table);
+      if (!tableResult.success) {
+        throw new BadRequestError('Invalid table name');
+      }
+
+      const columnResult = tableNameSchema.safeParse(request.params.column);
+      if (!columnResult.success) {
+        throw new BadRequestError('Invalid column name');
+      }
+
+      const parsed = alterColumnBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+      }
+
+      const result = await crudService.alterColumn(
+        request.projectContext.projectId,
+        request.params.table,
+        request.params.column,
+        parsed.data
+      );
+
+      return reply.send({ data: result });
+    }
+  );
+
+  // Create an index
+  fastify.post('/schema/indexes', async (request, reply) => {
+    requireSecretKey(request);
+
+    const parsed = createIndexBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+    }
+
+    const result = await crudService.createIndex(
+      request.projectContext.projectId,
+      parsed.data
+    );
+
+    return reply.status(201).send({ data: result });
+  });
+
+  // Drop an index
+  fastify.delete<{ Params: { name: string } }>(
+    '/schema/indexes/:name',
+    async (request, reply) => {
+      requireSecretKey(request);
+
+      const nameResult = tableNameSchema.safeParse(request.params.name);
+      if (!nameResult.success) {
+        throw new BadRequestError('Invalid index name');
+      }
+
+      const parsed = dropIndexBodySchema.safeParse(request.body || {});
+      if (!parsed.success) {
+        throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+      }
+
+      const result = await crudService.dropIndex(
+        request.projectContext.projectId,
+        request.params.name,
+        parsed.data.ifExists
+      );
+
+      return reply.send({ data: result });
+    }
+  );
+
+  // Truncate a table
+  fastify.post<{ Params: { table: string } }>(
+    '/schema/tables/:table/truncate',
+    async (request, reply) => {
+      requireSecretKey(request);
+
+      const tableResult = tableNameSchema.safeParse(request.params.table);
+      if (!tableResult.success) {
+        throw new BadRequestError('Invalid table name');
+      }
+
+      const parsed = truncateBodySchema.safeParse(request.body || {});
+      if (!parsed.success) {
+        throw new BadRequestError('Invalid request body', parsed.error.flatten().fieldErrors);
+      }
+
+      const result = await crudService.truncateTable(
+        request.projectContext.projectId,
+        request.params.table,
+        parsed.data
       );
 
       return reply.send({ data: result });

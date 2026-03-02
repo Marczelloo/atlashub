@@ -434,4 +434,197 @@ describe('Public CRUD REST API', () => {
       expect(tables.data.some((t: { tableName: string }) => t.tableName === 'users')).toBe(true);
     });
   });
+
+  describe('DDL Extensions', () => {
+    describe('ALTER COLUMN', () => {
+      it('PATCH /v1/db/schema/tables/:table/columns/:column - changes nullable', async () => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/v1/db/schema/tables/users/columns/age',
+          headers: getPublicHeaders(secretKey),
+          payload: { nullable: true },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.data.success).toBe(true);
+      });
+
+      it('PATCH /v1/db/schema/tables/:table/columns/:column - sets default value', async () => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/v1/db/schema/tables/users/columns/active',
+          headers: getPublicHeaders(secretKey),
+          payload: { defaultValue: 'true' },
+        });
+
+        expect(res.statusCode).toBe(200);
+      });
+
+      it('PATCH /v1/db/schema/tables/:table/columns/:column - drops default', async () => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/v1/db/schema/tables/users/columns/active',
+          headers: getPublicHeaders(secretKey),
+          payload: { dropDefault: true },
+        });
+
+        expect(res.statusCode).toBe(200);
+      });
+
+      it('rejects ALTER with publishable key', async () => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/v1/db/schema/tables/users/columns/age',
+          headers: getPublicHeaders(publishableKey),
+          payload: { nullable: true },
+        });
+
+        expect(res.statusCode).toBe(403);
+      });
+    });
+
+    describe('CREATE INDEX', () => {
+      it('POST /v1/db/schema/indexes - creates simple index', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/indexes',
+          headers: getPublicHeaders(secretKey),
+          payload: {
+            name: 'idx_users_name',
+            table: 'users',
+            columns: ['name'],
+          },
+        });
+
+        expect(res.statusCode).toBe(201);
+        const data = JSON.parse(res.body);
+        expect(data.data.indexName).toBe('idx_users_name');
+      });
+
+      it('POST /v1/db/schema/indexes - creates unique index', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/indexes',
+          headers: getPublicHeaders(secretKey),
+          payload: {
+            name: 'idx_users_email_unique',
+            table: 'users',
+            columns: ['email'],
+            unique: true,
+            ifNotExists: true,
+          },
+        });
+
+        expect(res.statusCode).toBe(201);
+      });
+
+      it('POST /v1/db/schema/indexes - creates partial index with WHERE', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/indexes',
+          headers: getPublicHeaders(secretKey),
+          payload: {
+            name: 'idx_active_users',
+            table: 'users',
+            columns: ['name'],
+            where: 'active = true',
+            ifNotExists: true,
+          },
+        });
+
+        expect(res.statusCode).toBe(201);
+      });
+
+      it('rejects index creation with publishable key', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/indexes',
+          headers: getPublicHeaders(publishableKey),
+          payload: {
+            name: 'idx_test',
+            table: 'users',
+            columns: ['name'],
+          },
+        });
+
+        expect(res.statusCode).toBe(403);
+      });
+    });
+
+    describe('DROP INDEX', () => {
+      it('DELETE /v1/db/schema/indexes/:name - drops index', async () => {
+        const res = await app.inject({
+          method: 'DELETE',
+          url: '/v1/db/schema/indexes/idx_users_name',
+          headers: getPublicHeaders(secretKey),
+          payload: {},
+        });
+
+        expect(res.statusCode).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.data.indexName).toBe('idx_users_name');
+      });
+
+      it('DELETE /v1/db/schema/indexes/:name - with ifExists', async () => {
+        const res = await app.inject({
+          method: 'DELETE',
+          url: '/v1/db/schema/indexes/nonexistent_idx',
+          headers: getPublicHeaders(secretKey),
+          payload: { ifExists: true },
+        });
+
+        // Should succeed with ifExists even if index doesn't exist
+        expect(res.statusCode).toBe(200);
+      });
+    });
+
+    describe('TRUNCATE TABLE', () => {
+      it('POST /v1/db/schema/tables/:table/truncate - truncates table', async () => {
+        // First insert some data
+        await app.inject({
+          method: 'POST',
+          url: '/v1/db/users',
+          headers: getPublicHeaders(secretKey),
+          payload: {
+            rows: [
+              { name: 'Truncate Test 1', email: 'truncate1@test.com' },
+              { name: 'Truncate Test 2', email: 'truncate2@test.com' },
+            ],
+          },
+        });
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/tables/users/truncate',
+          headers: getPublicHeaders(secretKey),
+          payload: {},
+        });
+
+        expect(res.statusCode).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.data.success).toBe(true);
+
+        // Verify table is empty
+        const checkRes = await app.inject({
+          method: 'GET',
+          url: '/v1/db/users',
+          headers: getPublicHeaders(publishableKey),
+        });
+        const checkData = JSON.parse(checkRes.body);
+        expect(checkData.data.length).toBe(0);
+      });
+
+      it('rejects truncate with publishable key', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/db/schema/tables/users/truncate',
+          headers: getPublicHeaders(publishableKey),
+          payload: {},
+        });
+
+        expect(res.statusCode).toBe(403);
+      });
+    });
+  });
 });

@@ -530,4 +530,185 @@ export const crudService = {
 
     return { success: true, tableName, oldName, newName };
   },
+
+  async alterColumn(
+    projectId: string,
+    tableName: string,
+    columnName: string,
+    changes: {
+      type?: string;
+      using?: string;
+      nullable?: boolean;
+      defaultValue?: string;
+      dropDefault?: boolean;
+      addConstraint?: {
+        name: string;
+        type: 'check' | 'unique' | 'not_null';
+        expression?: string;
+      };
+      dropConstraint?: string;
+    }
+  ): Promise<{ success: true; tableName: string; columnName: string }> {
+    validateIdentifier(tableName, 'table');
+    validateIdentifier(columnName, 'column');
+
+    const alterStatements: string[] = [];
+
+    // Handle type change
+    if (changes.type) {
+      const baseType = changes.type.toLowerCase().split('(')[0].trim();
+      if (!ALLOWED_DATA_TYPES.has(baseType)) {
+        throw new BadRequestError(`Invalid data type: ${changes.type}`);
+      }
+      let typeStmt = `ALTER COLUMN "${columnName}" TYPE ${changes.type}`;
+      if (changes.using) {
+        // Validate USING clause - only allow safe expressions
+        if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/]+$/.test(changes.using)) {
+          throw new BadRequestError('Invalid USING clause');
+        }
+        typeStmt += ` USING ${changes.using}`;
+      }
+      alterStatements.push(typeStmt);
+    }
+
+    // Handle nullable
+    if (changes.nullable === true) {
+      alterStatements.push(`ALTER COLUMN "${columnName}" DROP NOT NULL`);
+    } else if (changes.nullable === false) {
+      alterStatements.push(`ALTER COLUMN "${columnName}" SET NOT NULL`);
+    }
+
+    // Handle default value
+    if (changes.dropDefault) {
+      alterStatements.push(`ALTER COLUMN "${columnName}" DROP DEFAULT`);
+    } else if (changes.defaultValue !== undefined) {
+      const defaultVal = changes.defaultValue;
+      // Validate default value
+      if (
+        defaultVal === 'now()' ||
+        defaultVal === 'CURRENT_TIMESTAMP' ||
+        defaultVal === 'gen_random_uuid()' ||
+        defaultVal === 'true' ||
+        defaultVal === 'false' ||
+        defaultVal === 'null' ||
+        /^-?\d+(\.\d+)?$/.test(defaultVal) ||
+        /^'[^']*'$/.test(defaultVal)
+      ) {
+        alterStatements.push(`ALTER COLUMN "${columnName}" SET DEFAULT ${defaultVal}`);
+      } else {
+        throw new BadRequestError(`Invalid default value: ${defaultVal}`);
+      }
+    }
+
+    // Handle drop constraint
+    if (changes.dropConstraint) {
+      validateIdentifier(changes.dropConstraint, 'column'); // Reuse for constraint name
+      alterStatements.push(`DROP CONSTRAINT "${changes.dropConstraint}"`);
+    }
+
+    // Handle add constraint
+    if (changes.addConstraint) {
+      validateIdentifier(changes.addConstraint.name, 'column');
+      const { name, type, expression } = changes.addConstraint;
+
+      if (type === 'check') {
+        if (!expression) {
+          throw new BadRequestError('Expression is required for CHECK constraint');
+        }
+        // Validate expression - basic safety check
+        if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/.test(expression)) {
+          throw new BadRequestError('Invalid CHECK constraint expression');
+        }
+        alterStatements.push(`ADD CONSTRAINT "${name}" CHECK (${expression})`);
+      } else if (type === 'unique') {
+        alterStatements.push(`ADD CONSTRAINT "${name}" UNIQUE ("${columnName}")`);
+      } else if (type === 'not_null') {
+        alterStatements.push(`ALTER COLUMN "${columnName}" SET NOT NULL`);
+      }
+    }
+
+    if (alterStatements.length === 0) {
+      throw new BadRequestError('No valid alterations specified');
+    }
+
+    const sql = `ALTER TABLE "${tableName}" ${alterStatements.join(', ')}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName, columnName };
+  },
+
+  async createIndex(
+    projectId: string,
+    options: {
+      name: string;
+      table: string;
+      columns: string[];
+      unique?: boolean;
+      where?: string;
+      ifNotExists?: boolean;
+    }
+  ): Promise<{ success: true; indexName: string; tableName: string }> {
+    validateIdentifier(options.name, 'column'); // Reuse for index name
+    validateIdentifier(options.table, 'table');
+
+    for (const col of options.columns) {
+      validateIdentifier(col, 'column');
+    }
+
+    // Validate WHERE clause
+    if (options.where) {
+      if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/.test(options.where)) {
+        throw new BadRequestError('Invalid WHERE clause');
+      }
+    }
+
+    const uniqueClause = options.unique ? 'UNIQUE ' : '';
+    const ifNotExistsClause = options.ifNotExists ? 'IF NOT EXISTS ' : '';
+    const columnsList = options.columns.map(c => `"${c}"`).join(', ');
+    const whereClause = options.where ? ` WHERE ${options.where}` : '';
+
+    const sql = `CREATE ${uniqueClause}INDEX ${ifNotExistsClause}"${options.name}" ON "${options.table}" (${columnsList})${whereClause}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+
+    return { success: true, indexName: options.name, tableName: options.table };
+  },
+
+  async dropIndex(
+    projectId: string,
+    indexName: string,
+    ifExists = false
+  ): Promise<{ success: true; indexName: string }> {
+    validateIdentifier(indexName, 'column'); // Reuse for index name
+
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const sql = `DROP INDEX ${ifExistsClause}"${indexName}"`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+
+    return { success: true, indexName };
+  },
+
+  async truncateTable(
+    projectId: string,
+    tableName: string,
+    options: {
+      restartIdentity?: boolean;
+      cascade?: boolean;
+    } = {}
+  ): Promise<{ success: true; tableName: string }> {
+    validateIdentifier(tableName, 'table');
+
+    const restartClause = options.restartIdentity ? ' RESTART IDENTITY' : '';
+    const cascadeClause = options.cascade ? ' CASCADE' : '';
+
+    const sql = `TRUNCATE TABLE "${tableName}"${restartClause}${cascadeClause}`;
+
+    await projectDb.queryAsOwner(projectId, sql);
+    this.clearCache(projectId);
+
+    return { success: true, tableName };
+  },
 };

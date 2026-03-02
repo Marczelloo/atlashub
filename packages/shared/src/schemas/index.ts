@@ -162,6 +162,45 @@ export const updateBodySchema = z.object({
 });
 
 // ============================================================
+// DDL Extension Schemas
+// ============================================================
+
+export const alterColumnSchema = z.object({
+  type: z.string().min(1).max(100).optional(),
+  using: z.string().max(500).optional(),
+  nullable: z.boolean().optional(),
+  defaultValue: z.string().max(255).optional(),
+  dropDefault: z.boolean().optional(),
+  addConstraint: z.object({
+    name: z.string().min(1).max(63),
+    type: z.enum(['check', 'unique', 'not_null']),
+    expression: z.string().max(1000).optional(), // Required for check constraints
+  }).optional(),
+  dropConstraint: z.string().min(1).max(63).optional(),
+}).refine(data => {
+  // At least one modification must be specified
+  return Object.keys(data).length > 0;
+}, { message: 'At least one modification must be specified' });
+
+export const createIndexSchema = z.object({
+  name: z.string().min(1).max(63),
+  table: z.string().min(1).max(63),
+  columns: z.array(z.string().min(1).max(63)).min(1).max(10),
+  unique: z.boolean().optional().default(false),
+  where: z.string().max(500).optional(),
+  ifNotExists: z.boolean().optional().default(false),
+});
+
+export const dropIndexSchema = z.object({
+  ifExists: z.boolean().optional().default(false),
+});
+
+export const truncateTableSchema = z.object({
+  restartIdentity: z.boolean().optional().default(false),
+  cascade: z.boolean().optional().default(false),
+});
+
+// ============================================================
 // Admin SQL Editor Schemas
 // ============================================================
 
@@ -210,3 +249,12 @@ export const errorResponseSchema = z.object({
   statusCode: z.number().int(),
   details: z.unknown().optional(),
 });
+
+// ============================================================
+// Type Exports
+// ============================================================
+
+export type AlterColumnInput = z.infer<typeof alterColumnSchema>;
+export type CreateIndexInput = z.infer<typeof createIndexSchema>;
+export type DropIndexInput = z.infer<typeof dropIndexSchema>;
+export type TruncateTableInput = z.infer<typeof truncateTableSchema>;

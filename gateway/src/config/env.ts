@@ -17,6 +17,16 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60000),
 
+  // Auth rate limiting (for brute-force protection)
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(300000), // 5 minutes
+
+  // Admin rate limit floor (minimum requests even for admins)
+  ADMIN_RATE_LIMIT_FLOOR: z.coerce.number().int().min(100).default(1000),
+
+  // CSP reporting (optional)
+  CSP_REPORT_URI: z.string().url().optional().or(z.literal('')),
+
   // Body limits
   BODY_LIMIT_BYTES: z.coerce
     .number()
@@ -72,6 +82,15 @@ const envSchema = z.object({
     .default(100 * 1024 * 1024), // 100MB
 });
 
+function validateCorsConfig(origins: string | true | string[], isProduction: boolean): void {
+  if (isProduction && origins === true) {
+    console.error('ERROR: CORS_ORIGINS cannot be "*" in production.');
+    console.error('Please specify allowed origins (comma-separated), e.g.:');
+    console.error('CORS_ORIGINS=https://app.example.com,https://admin.example.com');
+    process.exit(1);
+  }
+}
+
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
 
@@ -80,6 +99,10 @@ function parseEnv() {
     console.error(result.error.flatten().fieldErrors);
     process.exit(1);
   }
+
+  // Validate CORS in production
+  const corsOrigins = result.data.CORS_ORIGINS === '*' ? true : result.data.CORS_ORIGINS.split(',');
+  validateCorsConfig(corsOrigins, result.data.NODE_ENV === 'production');
 
   return result.data;
 }
@@ -128,6 +151,10 @@ export const config = {
     cfAccessTeamDomain: env.CF_ACCESS_TEAM_DOMAIN,
     cfAccessAudience: env.CF_ACCESS_AUDIENCE,
     cfAccessEnabled: Boolean(env.CF_ACCESS_TEAM_DOMAIN && env.CF_ACCESS_AUDIENCE),
+    authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
+    authRateLimitWindowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
+    adminRateLimitFloor: env.ADMIN_RATE_LIMIT_FLOOR,
+    cspReportUri: env.CSP_REPORT_URI || undefined,
   },
 
   query: {

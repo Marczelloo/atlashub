@@ -1,0 +1,59 @@
+{
+  "name": "@atlashub/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for AtlasHub - A Supabase-like backend-as-a-service",
+  "keywords": [
+    "atlashub",
+    "sdk",
+    "database",
+    "storage",
+    "auth",
+    "backend",
+    "baas",
+    "postgresql"
+  ],
+  "author": "AtlasHub",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "rimraf": "^6.0.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atlashub/atlashub.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/atlashub/atlashub/issues"
+  },
+  "homepage": "https://github.com/atlashub/atlashub#readme"
+}

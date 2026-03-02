@@ -13,11 +13,9 @@ async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> 
     (headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
 
-  // Add dev admin token in development (available in browser via NEXT_PUBLIC_)
-  const devToken = process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN;
-  if (devToken) {
-    (headers as Record<string, string>)['x-dev-admin-token'] = devToken;
-  }
+  // DEV ADMIN TOKEN REMOVED FROM CLIENT-SIDE
+  // Use server-api.ts for server-side operations with dev token
+  // Client-side relies on cookie-based authentication only
 
   const response = await fetch(`${GATEWAY_URL}${path}`, {
     ...options,
@@ -532,9 +530,7 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
-          ? { 'x-dev-admin-token': process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN }
-          : {}),
+        // DEV TOKEN REMOVED - relies on cookie auth
       },
       credentials: 'include',
       body: JSON.stringify({ tableName, format, ...options }),

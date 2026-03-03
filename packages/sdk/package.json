@@ -49,11 +49,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/atlashub/atlashub.git",
+    "url": "https://github.com/Marczelloo/atlashub.git",
     "directory": "packages/sdk"
   },
   "bugs": {
-    "url": "https://github.com/atlashub/atlashub/issues"
+    "url": "https://github.com/Marczelloo/atlashub/issues"
   },
-  "homepage": "https://github.com/atlashub/atlashub#readme"
+  "homepage": "https://github.com/Marczelloo/atlashub#readme"
 }

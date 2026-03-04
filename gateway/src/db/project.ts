@@ -7,31 +7,52 @@ interface ProjectPools {
   owner: Pool;
   app: Pool;
   lastAccessed: number;
+  inUse: number; // Reference count to prevent eviction while in use
 }
 
 // Maximum number of projects to keep connection pools for
-const MAX_PROJECT_POOLS = 50;
+const MAX_PROJECT_POOLS = 100;
+
+// Track pools that are being closed to prevent double-close
+const closingPools = new Set<string>();
 
 // Cache of project connection pools with LRU eviction
 const projectPools = new LRUCache<string, ProjectPools>({
   max: MAX_PROJECT_POOLS,
   // Dispose function is called when an item is evicted
   dispose: (pools, projectId) => {
+    // Don't close if already being closed elsewhere
+    if (closingPools.has(projectId)) {
+      return;
+    }
+    // Don't close if pool is still in use
+    if (pools.inUse > 0) {
+      // Put it back in the cache - this is a safety measure
+      // In practice, fetchMethod or noDelete should prevent this
+      console.warn(`Attempted to evict pool for project ${projectId} while in use (${pools.inUse} active queries)`);
+      return;
+    }
+    closingPools.add(projectId);
     // Gracefully close pools when evicted from cache
-    // Note: This is synchronous in dispose, but pool.end() is async
-    // We fire-and-forget here since we're in a disposal context
     Promise.all([pools.owner.end(), pools.app.end()])
       .then(() => {
         console.log(`Closed connection pools for project ${projectId}`);
       })
       .catch((err) => {
         console.error(`Error closing pools for project ${projectId}:`, err);
+      })
+      .finally(() => {
+        closingPools.delete(projectId);
       });
   },
+  // Don't call dispose when overwriting a key with set()
+  noDisposeOnSet: true,
   // Update age on get to track access patterns
   updateAgeOnGet: true,
-  // Set TTL to match idle timeout plus buffer to allow natural cleanup
-  ttl: config.postgres.idleTimeoutMs * 2,
+  // Set TTL to 10 minutes (longer than typical idle timeout)
+  ttl: 10 * 60 * 1000,
+  // Don't delete items that are stale if they're being fetched
+  allowStale: false,
 });
 
 async function getProjectPools(projectId: string): Promise<ProjectPools> {
@@ -39,6 +60,13 @@ async function getProjectPools(projectId: string): Promise<ProjectPools> {
   if (cached) {
     cached.lastAccessed = Date.now();
     return cached;
+  }
+
+  // Check if pools are being closed for this project
+  if (closingPools.has(projectId)) {
+    // Wait a bit and retry
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return getProjectPools(projectId);
   }
 
   const creds = await projectDbCredsService.getCredentials(projectId);
@@ -70,6 +98,7 @@ async function getProjectPools(projectId: string): Promise<ProjectPools> {
     owner: ownerPool,
     app: appPool,
     lastAccessed: Date.now(),
+    inUse: 0,
   };
 
   projectPools.set(projectId, pools);
@@ -84,7 +113,12 @@ export const projectDb = {
     params?: unknown[]
   ) {
     const pools = await getProjectPools(projectId);
-    return pools.owner.query<T>(text, params);
+    pools.inUse++;
+    try {
+      return await pools.owner.query<T>(text, params);
+    } finally {
+      pools.inUse--;
+    }
   },
 
   async queryAsApp<T extends Record<string, unknown> = Record<string, unknown>>(
@@ -93,16 +127,31 @@ export const projectDb = {
     params?: unknown[]
   ) {
     const pools = await getProjectPools(projectId);
-    return pools.app.query<T>(text, params);
+    pools.inUse++;
+    try {
+      return await pools.app.query<T>(text, params);
+    } finally {
+      pools.inUse--;
+    }
   },
 
   async closeProjectPools(projectId: string): Promise<void> {
+    // Check if already being closed
+    if (closingPools.has(projectId)) {
+      return;
+    }
+
     const pools = projectPools.get(projectId);
     if (pools) {
+      closingPools.add(projectId);
       // Remove from cache first to prevent new queries
       projectPools.delete(projectId);
-      // Then close the pools
-      await Promise.all([pools.owner.end(), pools.app.end()]);
+      try {
+        // Then close the pools
+        await Promise.all([pools.owner.end(), pools.app.end()]);
+      } finally {
+        closingPools.delete(projectId);
+      }
     }
   },
 

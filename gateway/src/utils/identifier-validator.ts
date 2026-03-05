@@ -14,23 +14,12 @@ export class InvalidIdentifierError extends Error {
 const MAX_IDENTIFIER_LENGTH = 63; // PostgreSQL limit
 const VALID_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/;
 
-const RESERVED_WORDS = new Set([
-  'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
-  'truncate', 'union', 'where', 'from', 'join', 'on', 'and', 'or',
-  'not', 'null', 'true', 'false', 'in', 'is', 'like', 'between',
-  'exists', 'case', 'when', 'then', 'else', 'end', 'as', 'order',
-  'by', 'asc', 'desc', 'limit', 'offset', 'group', 'having',
-  'distinct', 'count', 'sum', 'avg', 'min', 'max', 'into', 'values',
-  'set', 'table', 'index', 'view', 'database', 'schema', 'grant',
-  'revoke', 'commit', 'rollback', 'transaction', 'primary', 'foreign',
-  'key', 'references', 'unique', 'check', 'default', 'constraint',
-  'cascade', 'restrict', 'using', 'inner', 'left', 'right', 'outer',
-  'full', 'cross', 'natural', 'with', 'recursive', 'returning',
-  'all', 'any', 'some', 'cast', 'extract', 'coalesce', 'nullif',
-  'timestamp', 'date', 'time', 'interval', 'boolean', 'integer',
-  'bigint', 'smallint', 'decimal', 'numeric', 'real', 'double',
-  'precision', 'varchar', 'char', 'text', 'blob', 'clob', 'array',
-  'json', 'jsonb', 'uuid', 'serial', 'bigserial', 'identity',
+// Note: We don't block reserved words because we always quote identifiers in SQL.
+// PostgreSQL allows reserved words as identifiers when properly quoted (e.g., "key", "order").
+// Only truly dangerous patterns should be blocked.
+const DANGEROUS_PATTERNS = new Set([
+  // These could cause issues even when quoted or are commonly used in SQL injection
+  'pg_catalog', 'information_schema', 'pg_toast', 'pg_temp',
 ]);
 
 export function validateIdentifier(name: string, type: 'table' | 'column'): void {
@@ -42,14 +31,16 @@ export function validateIdentifier(name: string, type: 'table' | 'column'): void
     throw new InvalidIdentifierError(`Invalid ${type} name: contains invalid characters`);
   }
 
-  if (RESERVED_WORDS.has(name.toLowerCase())) {
-    throw new InvalidIdentifierError(`Invalid ${type} name: "${name}" is a reserved SQL keyword`);
+  // Only block dangerous patterns, not general reserved words
+  // Reserved words are safe when quoted, which we always do in SQL generation
+  if (DANGEROUS_PATTERNS.has(name.toLowerCase())) {
+    throw new InvalidIdentifierError(`Invalid ${type} name: "${name}" is not allowed`);
   }
 }
 
 export function isValidIdentifier(name: string): boolean {
   if (name.length > MAX_IDENTIFIER_LENGTH) return false;
   if (!VALID_IDENTIFIER_REGEX.test(name)) return false;
-  if (RESERVED_WORDS.has(name.toLowerCase())) return false;
+  if (DANGEROUS_PATTERNS.has(name.toLowerCase())) return false;
   return true;
 }

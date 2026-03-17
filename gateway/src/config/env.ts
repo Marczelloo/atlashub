@@ -54,6 +54,7 @@ const envSchema = z.object({
   MINIO_ACCESS_KEY: z.string().min(1),
   MINIO_SECRET_KEY: z.string().min(1),
   MINIO_REGION: z.string().default('us-east-1'),
+  MINIO_PUBLIC_URL: z.string().url().optional().or(z.literal('')),
 
   // Security
   PLATFORM_MASTER_KEY: z.string().min(32), // For encrypting project DB creds (AES-256)
@@ -139,6 +140,7 @@ export const config = {
     accessKey: env.MINIO_ACCESS_KEY,
     secretKey: env.MINIO_SECRET_KEY,
     region: env.MINIO_REGION,
+    publicUrl: env.MINIO_PUBLIC_URL || undefined,
   },
 
   security: {

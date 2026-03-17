@@ -17,6 +17,19 @@ import { NotFoundError, BadRequestError } from '../lib/errors.js';
 // S3 allows max 1000 objects per DeleteObjects request
 const S3_BATCH_DELETE_SIZE = 1000;
 
+/**
+ * Replace internal MinIO endpoint with public URL for presigned URLs.
+ * This allows external apps to access MinIO from outside Docker network.
+ */
+function getPublicUrl(internalUrl: string): string {
+  if (!config.minio.publicUrl) {
+    return internalUrl; // Fallback to internal URL if no public URL configured
+  }
+
+  const internalEndpoint = `http${config.minio.useSSL ? 's' : ''}://${config.minio.endpoint}:${config.minio.port}`;
+  return internalUrl.replace(internalEndpoint, config.minio.publicUrl);
+}
+
 // Path traversal prevention - validates object keys don't escape bucket scope
 function validateObjectKey(key: string): void {
   // Normalize the path to prevent encoding bypasses
@@ -180,7 +193,7 @@ export const storageService = {
       [randomUUID(), projectId, logicalBucket, objectKey, contentType, maxSize || 0]
     );
 
-    return { objectKey, uploadUrl, expiresIn };
+    return { objectKey, uploadUrl: getPublicUrl(uploadUrl), expiresIn };
   },
 
   async getSignedDownloadUrl(
@@ -206,7 +219,7 @@ export const storageService = {
 
     const downloadUrl = await getSignedUrl(s3Client, command, { expiresIn });
 
-    return { downloadUrl, expiresIn };
+    return { downloadUrl: getPublicUrl(downloadUrl), expiresIn };
   },
 
   async listObjects(

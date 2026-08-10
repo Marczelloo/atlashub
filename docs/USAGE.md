@@ -234,6 +234,7 @@ Base path: `${ATLASHUB_API_URL}/v1/db/schema`
 All schema management endpoints **require a secret key**. These operations modify your database structure.
 
 Available operations:
+
 - **Tables:** Create, Drop, Rename
 - **Columns:** Add, Drop, Rename, Alter
 - **Indexes:** Create, Drop
@@ -618,7 +619,10 @@ x-api-key: <your-key>
 - `bucket` (required): Logical bucket name (e.g., `uploads`, `private`)
 - `path` (required): Path within the bucket
 - `contentType` (required): MIME type of the file
-- `maxSize` (optional): Maximum file size in bytes (default: no limit, max: 100MB)
+- `maxSize` (optional): Maximum file size in bytes (default server limit: 100MB, hard ceiling: 5GB)
+
+The server limit is controlled by `MAX_UPLOAD_SIZE_BYTES`. Set it explicitly to
+`5368709120` for uploads up to 5GB.
 
 **Response:**
 

@@ -104,6 +104,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
+  const [isBucketDialogOpen, setIsBucketDialogOpen] = useState(false);
+  const [newBucketName, setNewBucketName] = useState('');
+  const [isCreatingBucket, setIsCreatingBucket] = useState(false);
 
   useEffect(() => {
     loadProject();
@@ -248,6 +251,25 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       }
     } catch (err) {
       console.error('Failed to load buckets:', err);
+    }
+  }
+
+  async function handleCreateBucket(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newBucketName.trim().toLowerCase();
+    if (!name) return;
+
+    setIsCreatingBucket(true);
+    try {
+      const response = await api.createBucket(id, name);
+      setNewBucketName('');
+      setIsBucketDialogOpen(false);
+      await loadBuckets();
+      setSelectedBucket(response.data.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create bucket');
+    } finally {
+      setIsCreatingBucket(false);
     }
   }
 
@@ -760,41 +782,96 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       : `${buckets.length} bucket${buckets.length === 1 ? '' : 's'} available`}
                   </CardDescription>
                 </div>
-                {selectedBucket && (
-                  <div className="flex items-center gap-2">
-                    {uploadProgress && (
-                      <span className="text-sm text-muted-foreground">{uploadProgress}</span>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isUploading}
-                      onClick={() => document.getElementById('file-upload')?.click()}
-                    >
-                      {isUploading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4 mr-2" />
+                <div className="flex items-center gap-2">
+                  <Dialog open={isBucketDialogOpen} onOpenChange={setIsBucketDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        New Bucket
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Create storage bucket</DialogTitle>
+                        <DialogDescription>
+                          A logical bucket is a private namespace inside this project&apos;s
+                          storage.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleCreateBucket} className="space-y-4">
+                        <div className="space-y-2">
+                          <label htmlFor="new-bucket-name" className="text-sm font-medium">
+                            Bucket name
+                          </label>
+                          <Input
+                            id="new-bucket-name"
+                            value={newBucketName}
+                            onChange={(event) => setNewBucketName(event.target.value)}
+                            placeholder="drive"
+                            pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+                            maxLength={63}
+                            autoFocus
+                            required
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Lowercase letters, numbers and hyphens; 1–63 characters.
+                          </p>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsBucketDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="submit"
+                            disabled={isCreatingBucket || !newBucketName.trim()}
+                          >
+                            {isCreatingBucket && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Create bucket
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  {selectedBucket && (
+                    <div className="flex items-center gap-2">
+                      {uploadProgress && (
+                        <span className="text-sm text-muted-foreground">{uploadProgress}</span>
                       )}
-                      Upload File
-                    </Button>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                      disabled={isUploading}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => selectedBucket && loadFiles(selectedBucket)}
-                      className="h-8 w-8"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isUploading}
+                        onClick={() => document.getElementById('file-upload')?.click()}
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        Upload File
+                      </Button>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                        disabled={isUploading}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => selectedBucket && loadFiles(selectedBucket)}
+                        className="h-8 w-8"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>

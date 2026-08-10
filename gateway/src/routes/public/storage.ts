@@ -1,8 +1,13 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
-import { signedUploadRequestSchema, signedDownloadRequestSchema } from '@atlashub/shared';
+import {
+  createBucketSchema,
+  signedUploadRequestSchema,
+  signedDownloadRequestSchema,
+} from '@atlashub/shared';
 import type { ProjectContext } from '@atlashub/shared';
 import { storageService } from '../../services/storage.js';
 import { BadRequestError, ForbiddenError } from '../../lib/errors.js';
+import { bucketService } from '../../services/buckets.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -11,6 +16,35 @@ declare module 'fastify' {
 }
 
 export const storageRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
+  // List logical buckets (secret key only)
+  fastify.get('/buckets', async (request, reply) => {
+    const { projectContext } = request;
+    if (projectContext.keyType !== 'secret') {
+      throw new ForbiddenError('Secret key required to list buckets');
+    }
+
+    return reply.send({ data: await bucketService.listBuckets(projectContext.projectId) });
+  });
+
+  // Create a logical bucket (secret key only)
+  fastify.post('/buckets', async (request, reply) => {
+    const { projectContext } = request;
+    if (projectContext.keyType !== 'secret') {
+      throw new ForbiddenError('Secret key required to create buckets');
+    }
+
+    const parseResult = createBucketSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const bucket = await bucketService.createBucket(
+      projectContext.projectId,
+      parseResult.data.name
+    );
+    return reply.status(201).send({ data: bucket });
+  });
+
   // Get signed upload URL
   fastify.post('/signed-upload', async (request: FastifyRequest, reply) => {
     const parseResult = signedUploadRequestSchema.safeParse(request.body);

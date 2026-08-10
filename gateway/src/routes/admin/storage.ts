@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { platformDb } from '../../db/platform.js';
 import { storageService } from '../../services/storage.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { projectService } from '../../services/project.js';
-import { signedUploadRequestSchema } from '@atlashub/shared';
+import { createBucketSchema, signedUploadRequestSchema } from '@atlashub/shared';
 import { auditService } from '../../services/audit.js';
+import { bucketService } from '../../services/buckets.js';
 
 export const adminStorageRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // List buckets in project
@@ -14,20 +14,38 @@ export const adminStorageRoutes: FastifyPluginAsync = async (fastify: FastifyIns
       throw new NotFoundError('Project not found');
     }
 
-    const result = await platformDb.query<{
-      id: string;
-      name: string;
-      created_at: Date;
-    }>(`SELECT id, name, created_at FROM buckets WHERE project_id = $1 ORDER BY name`, [
-      request.params.id,
-    ]);
-
+    const buckets = await bucketService.listBuckets(request.params.id);
     return reply.send({
-      data: result.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        createdAt: row.created_at,
-      })),
+      data: buckets.map(({ id, name, createdAt }) => ({ id, name, createdAt })),
+    });
+  });
+
+  // Create a logical bucket in the project. Physical MinIO buckets are managed per project.
+  fastify.post<{ Params: { id: string } }>('/projects/:id/buckets', async (request, reply) => {
+    const project = await projectService.getProject(request.params.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+
+    const parseResult = createBucketSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const bucket = await bucketService.createBucket(request.params.id, parseResult.data.name);
+
+    await auditService.log({
+      action: auditService.actions.BUCKET_CREATED,
+      projectId: request.params.id,
+      details: { bucket: bucket.name },
+    });
+
+    return reply.status(201).send({
+      data: {
+        id: bucket.id,
+        name: bucket.name,
+        createdAt: bucket.createdAt,
+      },
     });
   });
 
@@ -90,53 +108,50 @@ export const adminStorageRoutes: FastifyPluginAsync = async (fastify: FastifyIns
   fastify.get<{
     Params: { id: string; bucketName: string };
     Querystring: { objectKey: string };
-  }>(
-    '/projects/:id/buckets/:bucketName/signed-download',
-    async (request, reply) => {
-      const project = await projectService.getProject(request.params.id);
-      if (!project) {
-        throw new NotFoundError('Project not found');
-      }
-
-      const { objectKey } = request.query;
-      if (!objectKey) {
-        throw new BadRequestError('objectKey is required');
-      }
-
-      const result = await storageService.getSignedDownloadUrl(
-        request.params.id,
-        request.params.bucketName,
-        objectKey
-      );
-
-      return reply.send(result);
+  }>('/projects/:id/buckets/:bucketName/signed-download', async (request, reply) => {
+    const project = await projectService.getProject(request.params.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
     }
-  );
+
+    const { objectKey } = request.query;
+    if (!objectKey) {
+      throw new BadRequestError('objectKey is required');
+    }
+
+    const result = await storageService.getSignedDownloadUrl(
+      request.params.id,
+      request.params.bucketName,
+      objectKey
+    );
+
+    return reply.send(result);
+  });
 
   // Delete file (admin endpoint for dashboard)
-  fastify.delete<{ Params: { id: string; bucketName: string }; Querystring: { objectKey: string } }>(
-    '/projects/:id/buckets/:bucketName/files',
-    async (request, reply) => {
-      const project = await projectService.getProject(request.params.id);
-      if (!project) {
-        throw new NotFoundError('Project not found');
-      }
-
-      const { objectKey } = request.query;
-      if (!objectKey) {
-        throw new BadRequestError('objectKey is required');
-      }
-
-      await storageService.deleteObject(request.params.id, request.params.bucketName, objectKey);
-
-      // Log file deletion
-      await auditService.log({
-        action: auditService.actions.FILE_DELETED,
-        projectId: request.params.id,
-        details: { bucket: request.params.bucketName, objectKey },
-      });
-
-      return reply.send({ success: true });
+  fastify.delete<{
+    Params: { id: string; bucketName: string };
+    Querystring: { objectKey: string };
+  }>('/projects/:id/buckets/:bucketName/files', async (request, reply) => {
+    const project = await projectService.getProject(request.params.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
     }
-  );
+
+    const { objectKey } = request.query;
+    if (!objectKey) {
+      throw new BadRequestError('objectKey is required');
+    }
+
+    await storageService.deleteObject(request.params.id, request.params.bucketName, objectKey);
+
+    // Log file deletion
+    await auditService.log({
+      action: auditService.actions.FILE_DELETED,
+      projectId: request.params.id,
+      details: { bucket: request.params.bucketName, objectKey },
+    });
+
+    return reply.send({ success: true });
+  });
 };

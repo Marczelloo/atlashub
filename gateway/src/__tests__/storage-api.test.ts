@@ -2,6 +2,8 @@
  * Integration tests for Public Storage API
  *
  * Tests the storage endpoints:
+ * - POST /v1/storage/buckets
+ * - GET /v1/storage/buckets
  * - POST /v1/storage/signed-upload
  * - GET /v1/storage/signed-download
  * - GET /v1/storage/list (secret key only)
@@ -50,6 +52,44 @@ describe('Public Storage API', () => {
       await cleanupTestProject(projectId);
     }
     await closeTestApp();
+  });
+
+  describe('Logical Buckets', () => {
+    it('creates and lists a bucket with a secret key', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/storage/buckets',
+        headers: getPublicHeaders(secretKey),
+        payload: { name: 'drive-test' },
+      });
+
+      expect(createRes.statusCode).toBe(201);
+      const created = JSON.parse(createRes.body);
+      expect(created.data.name).toBe('drive-test');
+
+      const listRes = await app.inject({
+        method: 'GET',
+        url: '/v1/storage/buckets',
+        headers: getPublicHeaders(secretKey, false),
+      });
+
+      expect(listRes.statusCode).toBe(200);
+      const listed = JSON.parse(listRes.body);
+      expect(listed.data.some((bucket: { name: string }) => bucket.name === 'drive-test')).toBe(
+        true
+      );
+    });
+
+    it('rejects bucket management with a publishable key', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/storage/buckets',
+        headers: getPublicHeaders(publishableKey),
+        payload: { name: 'not-allowed' },
+      });
+
+      expect(createRes.statusCode).toBe(403);
+    });
   });
 
   describe('Signed Upload URL', () => {

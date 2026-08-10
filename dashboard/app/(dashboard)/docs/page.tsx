@@ -156,6 +156,20 @@ const data = await response.json();`}
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
+                    <h4 className="font-semibold text-lg mb-2 text-blue-400">
+                      Bucket management (secret key)
+                    </h4>
+                    <p className="text-zinc-400 text-sm mb-2">
+                      Create and list private logical buckets inside the project storage.
+                    </p>
+                    <SyntaxHighlighter
+                      code={`GET /v1/storage/buckets
+POST /v1/storage/buckets
+{ "name": "drive" }`}
+                    />
+                  </div>
+
+                  <div>
                     <h4 className="font-semibold text-lg mb-2">Base URL</h4>
                     <SyntaxHighlighter code="https://api.your-domain.com/v1" />
                   </div>
@@ -541,7 +555,9 @@ const { objects } = await res.json();`}
                     <h4 className="font-semibold text-lg mb-2 text-purple-400">
                       PATCH /v1/db/schema/tables/:table/columns/:column
                     </h4>
-                    <p className="text-zinc-400 text-sm mb-2">Alter column type, nullable, default, constraints</p>
+                    <p className="text-zinc-400 text-sm mb-2">
+                      Alter column type, nullable, default, constraints
+                    </p>
                     <SyntaxHighlighter
                       code={`const res = await fetch('/v1/db/schema/tables/products/columns/price', {
   method: 'PATCH',
@@ -607,7 +623,9 @@ const { objects } = await res.json();`}
                     <h4 className="font-semibold text-lg mb-2 text-red-400">
                       POST /v1/db/schema/tables/:table/truncate
                     </h4>
-                    <p className="text-zinc-400 text-sm mb-2">Empty a table quickly (irreversible!)</p>
+                    <p className="text-zinc-400 text-sm mb-2">
+                      Empty a table quickly (irreversible!)
+                    </p>
                     <SyntaxHighlighter
                       code={`const res = await fetch('/v1/db/schema/tables/logs/truncate', {
   method: 'POST',
@@ -808,6 +826,10 @@ GET /admin/activity?limit=20`}
                   <SyntaxHighlighter
                     code={`// List buckets
 GET /admin/projects/:id/buckets
+
+// Create a logical bucket
+POST /admin/projects/:id/buckets
+{ "name": "drive" }
 
 // List files in bucket
 GET /admin/projects/:id/buckets/:bucketName/files

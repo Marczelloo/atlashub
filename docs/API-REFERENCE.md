@@ -690,6 +690,28 @@ Base path: `/v1/storage`
 
 All storage is private. Files are accessed via presigned URLs.
 
+### Manage Logical Buckets
+
+Logical buckets are private namespaces inside a project physical storage bucket.
+Bucket management requires a secret API key.
+
+```http
+GET /v1/storage/buckets
+x-api-key: <secret-key>
+```
+
+```http
+POST /v1/storage/buckets
+Content-Type: application/json
+x-api-key: <secret-key>
+```
+
+```json
+{
+  "name": "drive"
+}
+```
+
 ### Get Signed Upload URL
 
 ```http
@@ -713,7 +735,7 @@ x-api-key: <your-key>
 | `bucket` | string | Logical bucket name (required) |
 | `path` | string | Path within the bucket (required) |
 | `contentType` | string | MIME type of the file (required) |
-| `maxSize` | number | Maximum file size in bytes (optional, max: 100MB) |
+| `maxSize` | number | Maximum file size in bytes (optional, hard ceiling: 5GB; server config may be lower) |
 
 **Response:**
 ```json
@@ -1269,6 +1291,23 @@ Content-Type: application/json
 ---
 
 ### Admin: Storage Management {#admin-storage}
+
+#### Create a Logical Bucket
+
+Logical buckets are private namespaces inside a project physical MinIO bucket. The physical
+project bucket is managed by AtlasHub and should not be created manually.
+
+```http
+POST /admin/projects/:id/buckets
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "drive"
+}
+```
 
 #### List Buckets
 

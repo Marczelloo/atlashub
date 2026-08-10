@@ -318,6 +318,16 @@ export const api = {
     return fetchApi(`/admin/projects/${projectId}/buckets`);
   },
 
+  async createBucket(
+    projectId: string,
+    name: string
+  ): Promise<{ data: { id: string; name: string; createdAt: string } }> {
+    return fetchApi(`/admin/projects/${projectId}/buckets`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  },
+
   async listFiles(
     projectId: string,
     bucketName: string,

@@ -140,6 +140,13 @@ export function createDemoApi(isDemo: boolean) {
       return { data: mockBuckets };
     },
 
+    async createBucket(
+      _projectId: string,
+      _name: string
+    ): Promise<{ data: { id: string; name: string; createdAt: string } }> {
+      throw new Error('Cannot create buckets in demo mode');
+    },
+
     async listFiles(
       _projectId: string,
       _bucketName: string,

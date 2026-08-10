@@ -13,7 +13,7 @@
 ### Core Platform
 
 - **🗄️ Database-per-Project** — Each project gets an isolated PostgreSQL database with dedicated roles
-- **📦 Private Object Storage** — MinIO S3-compatible storage with presigned upload/download URLs
+- **📦 Private Object Storage** — MinIO S3-compatible storage with logical bucket management and presigned upload/download URLs
 - **🔐 Secure API Keys** — SHA-256 hashed keys with publishable/secret key separation
 - **📊 Admin Dashboard** — Modern Next.js UI with SQL editor, file browser, and real-time settings
 - **⚡ REST CRUD API** — Safe, parameterized queries with Supabase-like filter syntax
@@ -117,6 +117,22 @@ _Coming soon_
    - Gateway: <http://localhost:3000>
    - Dashboard: <http://localhost:3001>
    - MinIO Console: <http://localhost:9001>
+
+### Logical Storage Buckets
+
+Each project owns one physical MinIO bucket and can contain multiple logical
+private buckets such as `uploads`, `private`, or `drive`. Create and list them
+with a secret API key:
+
+```http
+POST /v1/storage/buckets
+x-api-key: sk_...
+Content-Type: application/json
+
+{ "name": "drive" }
+```
+
+The admin dashboard exposes the same operation in a project's Storage tab.
 
 6. **Create your admin account:**
 

@@ -66,8 +66,12 @@ export const signedUploadRequestSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(100 * 1024 * 1024)
-    .optional(), // max 100MB
+    .max(5 * 1024 * 1024 * 1024)
+    .optional(), // hard ceiling 5GB; server config may be lower
+});
+
+export const createBucketSchema = z.object({
+  name: bucketNameSchema,
 });
 
 export const signedUploadResponseSchema = z.object({

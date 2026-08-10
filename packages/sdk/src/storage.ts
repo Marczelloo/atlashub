@@ -51,9 +51,7 @@ export class StorageClient {
    *   headers: { 'Content-Type': 'image/png' }
    * })
    */
-  async getUploadUrl(
-    options: UploadOptions
-  ): Promise<ApiResponse<SignedUploadResponse>> {
+  async getUploadUrl(options: UploadOptions): Promise<ApiResponse<SignedUploadResponse>> {
     return this._request<SignedUploadResponse>('POST', '/storage/signed-upload', {
       bucket: options.bucket,
       path: options.path,
@@ -74,9 +72,7 @@ export class StorageClient {
    * const response = await fetch(data.downloadUrl)
    * const blob = await response.blob()
    */
-  async getDownloadUrl(
-    options: DownloadOptions
-  ): Promise<ApiResponse<SignedDownloadResponse>> {
+  async getDownloadUrl(options: DownloadOptions): Promise<ApiResponse<SignedDownloadResponse>> {
     const params = new URLSearchParams({
       bucket: options.bucket,
       objectKey: options.objectKey,
@@ -161,9 +157,7 @@ export class StorageClient {
    *   // Use the blob URL
    * }
    */
-  async download(
-    options: DownloadOptions
-  ): Promise<ApiResponse<Blob>> {
+  async download(options: DownloadOptions): Promise<ApiResponse<Blob>> {
     // Get signed download URL
     const downloadUrlResponse = await this.getDownloadUrl(options);
 
@@ -226,10 +220,7 @@ export class StorageClient {
       params.set('limit', String(options.limit));
     }
 
-    return this._request<StorageObject[]>(
-      'GET',
-      `/storage/list?${params.toString()}`
-    );
+    return this._request<StorageObject[]>('GET', `/storage/list?${params.toString()}`);
   }
 
   /**
@@ -240,9 +231,7 @@ export class StorageClient {
    *   objectKey: 'avatars/user123.png'
    * })
    */
-  async delete(
-    options: { bucket: string; objectKey: string }
-  ): Promise<ApiResponse<void>> {
+  async delete(options: { bucket: string; objectKey: string }): Promise<ApiResponse<void>> {
     const params = new URLSearchParams({
       bucket: options.bucket,
       objectKey: options.objectKey,
@@ -252,36 +241,38 @@ export class StorageClient {
   }
 
   /**
-   * Create a new bucket (admin only)
+   * Create a new logical bucket (secret key only)
    * @example
-   * const { error } = await client.storage.createBucket('new-bucket')
+   * const { data, error } = await client.storage.createBucket('new-bucket')
    */
-  async createBucket(name: string): Promise<ApiResponse<{ name: string }>> {
-    return this._request<{ name: string }>('POST', '/admin/storage/buckets', {
-      name,
-    });
+  async createBucket(
+    name: string
+  ): Promise<ApiResponse<{ id: string; name: string; createdAt: Date }>> {
+    return this._request<{ id: string; name: string; createdAt: Date }>(
+      'POST',
+      '/storage/buckets',
+      {
+        name,
+      }
+    );
   }
 
   /**
-   * List all buckets (admin only)
+   * List logical buckets (secret key only)
    * @example
    * const { data, error } = await client.storage.listBuckets()
    */
   async listBuckets(): Promise<ApiResponse<Array<{ id: string; name: string; createdAt: Date }>>> {
     return this._request<Array<{ id: string; name: string; createdAt: Date }>>(
       'GET',
-      '/admin/storage/buckets'
+      '/storage/buckets'
     );
   }
 
   /**
    * Internal request method
    */
-  private async _request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<ApiResponse<T>> {
+  private async _request<T>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
     const url = new URL(path, this._baseUrl);
 
     const controller = new AbortController();

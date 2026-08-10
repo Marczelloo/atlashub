@@ -247,6 +247,19 @@ atlashub/
    docker compose up -d
    ```
 
+### Dashboard autodeploy
+
+The dashboard is deployed by [`.github/workflows/deploy-dashboard.yml`](.github/workflows/deploy-dashboard.yml) after every push to `main`. The Raspberry Pi uses a private LAN address, so the workflow intentionally runs on a self-hosted GitHub Actions runner installed on the Pi instead of trying to SSH from a GitHub-hosted runner.
+
+One-time setup:
+
+1. In GitHub open `Settings → Actions → Runners → New self-hosted runner`, select Linux ARM64, and install it on the Pi.
+2. Add the custom runner label `atlashub-prod`.
+3. Run the runner as a systemd service under a user that can access Docker and `/home/Marczelloo_pi/projects/atlas-hub`.
+4. Confirm that the production `.env` stays in that directory and is not committed.
+
+The workflow fast-forwards the production checkout to the exact commit that triggered it, rebuilds only the dashboard, and verifies that the container, favicon, and manifest are served locally before succeeding. Until the runner is registered, pushes remain visible in GitHub Actions but wait for an available runner.
+
 ### Cloudflare Tunnel Setup
 
 1. Create a tunnel in Cloudflare Zero Trust

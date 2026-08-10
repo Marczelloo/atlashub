@@ -46,8 +46,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy public files
-COPY --from=builder /app/dashboard/public ./public
+# Next.js resolves public assets from the runtime working directory
+# (/app/dashboard), so keep the copied files beside server.js.
+COPY --from=builder /app/dashboard/public ./dashboard/public
 
 # Copy standalone output - with hoisted pnpm, structure is simpler
 COPY --from=builder --chown=nextjs:nodejs /app/dashboard/.next/standalone ./

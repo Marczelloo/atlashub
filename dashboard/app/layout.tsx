@@ -51,7 +51,9 @@ export const metadata: Metadata = {
     description: 'Self-hosted backend platform admin dashboard',
   },
   icons: {
-    icon: '/favicon.ico',
+    icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
+    shortcut: '/favicon.ico',
+    apple: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
   },
   manifest: '/manifest.json',
 };

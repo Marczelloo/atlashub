@@ -1,0 +1,38 @@
+name: Deploy AtlasHub dashboard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlashub-dashboard-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # The Raspberry Pi is on a private LAN, so a GitHub-hosted runner cannot
+    # reach it. Register the Pi as a self-hosted runner with label atlashub-prod.
+    runs-on: [self-hosted, linux, ARM64, atlashub-prod]
+    timeout-minutes: 30
+    env:
+      DEPLOY_PATH: /home/Marczelloo_pi/projects/atlas-hub
+
+    steps:
+      - name: Deploy current main on Raspberry Pi
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          test -f .env
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker compose up -d --build --no-deps dashboard
+          test "$(docker inspect -f '{{.State.Status}}' atlashub-dashboard)" = "running"
+          curl --fail --silent --show-error --max-time 20 http://127.0.0.1:3000/favicon.ico -o /dev/null
+          curl --fail --silent --show-error --max-time 20 http://127.0.0.1:3000/manifest.json -o /dev/null

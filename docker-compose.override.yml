@@ -2,16 +2,9 @@
 # Usage: docker compose --profile dev up
 
 services:
-  postgres:
-    ports:
-      - '5432:5432'
-    profiles: ['dev']
-
-  minio:
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    profiles: ['dev']
+  # PostgreSQL and MinIO already expose localhost-only ports in the base
+  # compose file. Re-declaring them here creates duplicate host bindings
+  # whenever the dev profile is enabled together with production services.
 
   # Gateway runs locally in dev, not in Docker
   gateway:

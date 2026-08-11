@@ -1,12 +1,16 @@
 import {
+  AbortMultipartUploadCommand,
   S3Client,
+  CompleteMultipartUploadCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
   DeleteBucketCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   GetObjectCommand,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +20,7 @@ import { NotFoundError, BadRequestError } from '../lib/errors.js';
 
 // S3 allows max 1000 objects per DeleteObjects request
 const S3_BATCH_DELETE_SIZE = 1000;
+const S3_MAX_PARTS = 10000;
 
 /**
  * Replace internal MinIO endpoint with public URL for presigned URLs.
@@ -57,6 +62,28 @@ function validateObjectKey(key: string): void {
   if (/^[a-zA-Z]:/.test(normalized)) {
     throw new BadRequestError('Invalid object key: drive letters not allowed');
   }
+}
+
+async function assertLogicalBucket(projectId: string, logicalBucket: string): Promise<void> {
+  const bucketResult = await platformDb.query<{ id: string }>(
+    'SELECT id FROM buckets WHERE project_id = $1 AND name = $2',
+    [projectId, logicalBucket]
+  );
+
+  if (bucketResult.rows.length === 0) {
+    throw new NotFoundError(`Bucket "${logicalBucket}" not found`);
+  }
+}
+
+function validateMultipartObjectKey(logicalBucket: string, objectKey: string): string {
+  const prefix = `${logicalBucket}/`;
+  if (!objectKey.startsWith(prefix)) {
+    throw new BadRequestError('Invalid multipart object key');
+  }
+
+  const path = objectKey.slice(prefix.length);
+  validateObjectKey(path);
+  return objectKey;
 }
 
 const s3Client = new S3Client({
@@ -152,15 +179,7 @@ export const storageService = {
     contentType: string,
     maxSize?: number
   ): Promise<{ objectKey: string; uploadUrl: string; expiresIn: number }> {
-    // Verify logical bucket exists
-    const bucketResult = await platformDb.query<{ id: string }>(
-      'SELECT id FROM buckets WHERE project_id = $1 AND name = $2',
-      [projectId, logicalBucket]
-    );
-
-    if (bucketResult.rows.length === 0) {
-      throw new NotFoundError(`Bucket "${logicalBucket}" not found`);
-    }
+    await assertLogicalBucket(projectId, logicalBucket);
 
     if (maxSize && maxSize > config.storage.maxUploadSizeBytes) {
       throw new BadRequestError(`maxSize cannot exceed ${config.storage.maxUploadSizeBytes} bytes`);
@@ -194,6 +213,139 @@ export const storageService = {
     );
 
     return { objectKey, uploadUrl: getPublicUrl(uploadUrl), expiresIn };
+  },
+
+  async initiateMultipartUpload(
+    projectId: string,
+    logicalBucket: string,
+    path: string,
+    contentType: string,
+    size: number
+  ): Promise<{ objectKey: string; uploadId: string; expiresIn: number }> {
+    await assertLogicalBucket(projectId, logicalBucket);
+
+    if (size > config.storage.maxUploadSizeBytes) {
+      throw new BadRequestError(`size cannot exceed ${config.storage.maxUploadSizeBytes} bytes`);
+    }
+
+    validateObjectKey(path);
+
+    const physicalBucket = getPhysicalBucketName(projectId);
+    const objectKey = `${logicalBucket}/${path}`;
+    const result = await s3Client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: physicalBucket,
+        Key: objectKey,
+        ContentType: contentType,
+      })
+    );
+
+    if (!result.UploadId) {
+      throw new BadRequestError('Storage did not return a multipart upload id');
+    }
+
+    await platformDb.query(
+      `INSERT INTO file_metadata (id, project_id, bucket, object_key, content_type, size)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (project_id, object_key) DO UPDATE SET
+         content_type = EXCLUDED.content_type,
+         size = EXCLUDED.size,
+         created_at = NOW()`,
+      [randomUUID(), projectId, logicalBucket, objectKey, contentType, size]
+    );
+
+    return {
+      objectKey,
+      uploadId: result.UploadId,
+      expiresIn: config.storage.presignedUrlExpirySeconds,
+    };
+  },
+
+  async getSignedMultipartPartUrl(
+    projectId: string,
+    logicalBucket: string,
+    objectKey: string,
+    uploadId: string,
+    partNumber: number
+  ): Promise<{ uploadUrl: string; partNumber: number; expiresIn: number }> {
+    await assertLogicalBucket(projectId, logicalBucket);
+
+    if (partNumber < 1 || partNumber > S3_MAX_PARTS) {
+      throw new BadRequestError(`partNumber must be between 1 and ${S3_MAX_PARTS}`);
+    }
+
+    const validatedObjectKey = validateMultipartObjectKey(logicalBucket, objectKey);
+    const command = new UploadPartCommand({
+      Bucket: getPhysicalBucketName(projectId),
+      Key: validatedObjectKey,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+    });
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: config.storage.presignedUrlExpirySeconds,
+    });
+
+    return {
+      uploadUrl: getPublicUrl(uploadUrl),
+      partNumber,
+      expiresIn: config.storage.presignedUrlExpirySeconds,
+    };
+  },
+
+  async completeMultipartUpload(
+    projectId: string,
+    logicalBucket: string,
+    objectKey: string,
+    uploadId: string,
+    parts: Array<{ partNumber: number; etag: string }>
+  ): Promise<{ objectKey: string }> {
+    await assertLogicalBucket(projectId, logicalBucket);
+
+    if (parts.length === 0 || parts.length > S3_MAX_PARTS) {
+      throw new BadRequestError(`parts must contain between 1 and ${S3_MAX_PARTS} entries`);
+    }
+
+    const validatedObjectKey = validateMultipartObjectKey(logicalBucket, objectKey);
+    const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+    if (sortedParts.some((part, index) => part.partNumber !== index + 1 || !part.etag.trim())) {
+      throw new BadRequestError('Multipart parts must be sequential and include ETags');
+    }
+
+    await s3Client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: getPhysicalBucketName(projectId),
+        Key: validatedObjectKey,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: sortedParts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
+        },
+      })
+    );
+
+    return { objectKey: validatedObjectKey };
+  },
+
+  async abortMultipartUpload(
+    projectId: string,
+    logicalBucket: string,
+    objectKey: string,
+    uploadId: string
+  ): Promise<void> {
+    await assertLogicalBucket(projectId, logicalBucket);
+    const validatedObjectKey = validateMultipartObjectKey(logicalBucket, objectKey);
+
+    await s3Client.send(
+      new AbortMultipartUploadCommand({
+        Bucket: getPhysicalBucketName(projectId),
+        Key: validatedObjectKey,
+        UploadId: uploadId,
+      })
+    );
+
+    await platformDb.query('DELETE FROM file_metadata WHERE project_id = $1 AND object_key = $2', [
+      projectId,
+      validatedObjectKey,
+    ]);
   },
 
   async getSignedDownloadUrl(

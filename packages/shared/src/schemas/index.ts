@@ -80,6 +80,36 @@ export const signedUploadResponseSchema = z.object({
   expiresIn: z.number().int(),
 });
 
+export const multipartInitiateRequestSchema = z.object({
+  bucket: bucketNameSchema,
+  path: objectPathSchema,
+  contentType: z.string().min(1).max(255),
+  size: z.number().int().min(1).max(5 * 1024 * 1024 * 1024),
+});
+
+export const multipartPartRequestSchema = z.object({
+  bucket: bucketNameSchema,
+  objectKey: z.string().min(1).max(1024),
+  uploadId: z.string().min(1).max(2048),
+  partNumber: z.number().int().min(1).max(10000),
+});
+
+export const multipartCompleteRequestSchema = z.object({
+  bucket: bucketNameSchema,
+  objectKey: z.string().min(1).max(1024),
+  uploadId: z.string().min(1).max(2048),
+  parts: z.array(z.object({
+    partNumber: z.number().int().min(1).max(10000),
+    etag: z.string().min(1).max(1024),
+  })).min(1).max(10000),
+});
+
+export const multipartAbortRequestSchema = z.object({
+  bucket: bucketNameSchema,
+  objectKey: z.string().min(1).max(1024),
+  uploadId: z.string().min(1).max(2048),
+});
+
 export const signedDownloadRequestSchema = z.object({
   bucket: bucketNameSchema,
   objectKey: z.string().min(1),

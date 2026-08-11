@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import {
   createBucketSchema,
+  multipartAbortRequestSchema,
+  multipartCompleteRequestSchema,
+  multipartInitiateRequestSchema,
+  multipartPartRequestSchema,
   signedUploadRequestSchema,
   signedDownloadRequestSchema,
 } from '@atlashub/shared';
@@ -64,6 +68,86 @@ export const storageRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     );
 
     return reply.send({ data: result });
+  });
+
+  // Multipart upload initiation. Parts are uploaded directly to MinIO using
+  // short-lived URLs so large files can pass through Cloudflare in chunks.
+  fastify.post('/multipart/initiate', async (request: FastifyRequest, reply) => {
+    const parseResult = multipartInitiateRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const { projectContext } = request;
+    const { bucket, path, contentType, size } = parseResult.data;
+    const result = await storageService.initiateMultipartUpload(
+      projectContext.projectId,
+      bucket,
+      path,
+      contentType,
+      size
+    );
+
+    return reply.status(201).send({ data: result });
+  });
+
+  // Get a signed URL for one multipart part.
+  fastify.post('/multipart/part', async (request: FastifyRequest, reply) => {
+    const parseResult = multipartPartRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const { projectContext } = request;
+    const { bucket, objectKey, uploadId, partNumber } = parseResult.data;
+    const result = await storageService.getSignedMultipartPartUrl(
+      projectContext.projectId,
+      bucket,
+      objectKey,
+      uploadId,
+      partNumber
+    );
+
+    return reply.send({ data: result });
+  });
+
+  // Complete a multipart upload after all parts have returned their ETags.
+  fastify.post('/multipart/complete', async (request: FastifyRequest, reply) => {
+    const parseResult = multipartCompleteRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const { projectContext } = request;
+    const { bucket, objectKey, uploadId, parts } = parseResult.data;
+    const result = await storageService.completeMultipartUpload(
+      projectContext.projectId,
+      bucket,
+      objectKey,
+      uploadId,
+      parts
+    );
+
+    return reply.send({ data: result });
+  });
+
+  // Abort abandoned multipart uploads and remove their metadata.
+  fastify.post('/multipart/abort', async (request: FastifyRequest, reply) => {
+    const parseResult = multipartAbortRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      throw new BadRequestError('Invalid request body', parseResult.error.flatten().fieldErrors);
+    }
+
+    const { projectContext } = request;
+    const { bucket, objectKey, uploadId } = parseResult.data;
+    await storageService.abortMultipartUpload(
+      projectContext.projectId,
+      bucket,
+      objectKey,
+      uploadId
+    );
+
+    return reply.status(204).send();
   });
 
   // Get signed download URL

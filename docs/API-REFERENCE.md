@@ -757,6 +757,84 @@ await fetch(uploadUrl, {
 });
 ```
 
+### Multipart Uploads for Large Files
+
+Use multipart uploads when the object is larger than the maximum request size of an
+intermediate proxy such as Cloudflare. Each part is uploaded independently with a
+short-lived presigned URL and the upload is completed only after all returned ETags
+are submitted. The API supports up to 10,000 parts and the configured project limit
+still applies to the declared total size.
+
+#### Initiate
+
+```http
+POST /v1/storage/multipart/initiate
+x-api-key: <your-key>
+Content-Type: application/json
+```
+
+```json
+{
+  "bucket": "uploads",
+  "path": "videos/example.mp4",
+  "contentType": "video/mp4",
+  "size": 1395864371
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "objectKey": "uploads/videos/example.mp4",
+    "uploadId": "...",
+    "expiresIn": 3600
+  }
+}
+```
+
+#### Get a part URL
+
+```http
+POST /v1/storage/multipart/part
+x-api-key: <your-key>
+Content-Type: application/json
+```
+
+```json
+{
+  "bucket": "uploads",
+  "objectKey": "uploads/videos/example.mp4",
+  "uploadId": "...",
+  "partNumber": 1
+}
+```
+
+Upload the part with `PUT` and save the returned `ETag` header.
+
+#### Complete or abort
+
+```http
+POST /v1/storage/multipart/complete
+x-api-key: <your-key>
+Content-Type: application/json
+```
+
+```json
+{
+  "bucket": "uploads",
+  "objectKey": "uploads/videos/example.mp4",
+  "uploadId": "...",
+  "parts": [
+    { "partNumber": 1, "etag": "\"etag-from-storage\"" }
+  ]
+}
+```
+
+If the upload is cancelled or fails, call `POST /v1/storage/multipart/abort`
+with `bucket`, `objectKey`, and `uploadId` so incomplete parts are removed.
+
 ### Get Signed Download URL
 
 ```http

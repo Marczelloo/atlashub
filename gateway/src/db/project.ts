@@ -1,7 +1,8 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { LRUCache } from 'lru-cache';
 import { projectDbCredsService } from '../services/project-db-creds.js';
 import { config } from '../config/env.js';
+import { runtimeSettings } from '../services/runtime-settings.js';
 
 interface ProjectPools {
   owner: Pool;
@@ -15,6 +16,9 @@ const MAX_PROJECT_POOLS = 100;
 
 // Track pools that are being closed to prevent double-close
 const closingPools = new Set<string>();
+
+// Pool creations in progress, so parallel first requests create pools once
+const pendingPools = new Map<string, Promise<ProjectPools>>();
 
 // Cache of project connection pools with LRU eviction
 const projectPools = new LRUCache<string, ProjectPools>({
@@ -69,18 +73,36 @@ async function getProjectPools(projectId: string): Promise<ProjectPools> {
     return getProjectPools(projectId);
   }
 
+  // Parallel first requests for a project share one pool creation. Without this
+  // each of them built its own pair of pools and all but one were dropped
+  // without being closed.
+  const pending = pendingPools.get(projectId);
+  if (pending) return pending;
+
+  const creation = createProjectPools(projectId).finally(() => {
+    pendingPools.delete(projectId);
+  });
+  pendingPools.set(projectId, creation);
+  return creation;
+}
+
+async function createProjectPools(projectId: string): Promise<ProjectPools> {
   const creds = await projectDbCredsService.getCredentials(projectId);
 
   const ownerPool = new Pool({
     connectionString: creds.owner,
-    max: 3, // Small pool per project
+    max: config.postgres.projectOwnerPoolSize, // Small pool per project
     idleTimeoutMillis: config.postgres.idleTimeoutMs,
     connectionTimeoutMillis: config.postgres.connectionTimeoutMs,
   });
 
   const appPool = new Pool({
     connectionString: creds.app,
-    max: 3,
+    max: config.postgres.projectAppPoolSize,
+    // Public API queries must not run unbounded: one slow filter on a large
+    // table would otherwise hold a connection and load the shared Postgres.
+    // The owner pool (DDL, imports, backups) has no such limit.
+    statement_timeout: runtimeSettings.getSqlStatementTimeoutMs(),
     idleTimeoutMillis: config.postgres.idleTimeoutMs,
     connectionTimeoutMillis: config.postgres.connectionTimeoutMs,
   });
@@ -104,6 +126,31 @@ async function getProjectPools(projectId: string): Promise<ProjectPools> {
   projectPools.set(projectId, pools);
 
   return pools;
+}
+
+async function runInTransaction<T>(
+  projectId: string,
+  role: 'app' | 'owner',
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const pools = await getProjectPools(projectId);
+  pools.inUse++;
+  try {
+    const client = await pools[role].connect();
+    try {
+      await client.query('BEGIN');
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  } finally {
+    pools.inUse--;
+  }
 }
 
 export const projectDb = {
@@ -130,6 +177,30 @@ export const projectDb = {
     pools.inUse++;
     try {
       return await pools.app.query<T>(text, params);
+    } finally {
+      pools.inUse--;
+    }
+  },
+
+  /** Run several statements as the app role in one transaction. */
+  async transactionAsApp<T>(projectId: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    return runInTransaction(projectId, 'app', fn);
+  },
+
+  /**
+   * Run statements as the owner role on one dedicated connection, without a
+   * transaction (so VACUUM or CREATE INDEX CONCURRENTLY still work).
+   */
+  async withOwnerClient<T>(projectId: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    const pools = await getProjectPools(projectId);
+    pools.inUse++;
+    try {
+      const client = await pools.owner.connect();
+      try {
+        return await fn(client);
+      } finally {
+        client.release();
+      }
     } finally {
       pools.inUse--;
     }

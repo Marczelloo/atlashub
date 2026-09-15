@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { authService, type User } from '../services/auth.js';
 import { config } from '../config/env.js';
 import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
+import { isValidDevAdminToken } from '../lib/dev-admin-token.js';
 
 const COOKIE_NAME = 'atlashub_session';
 
@@ -16,10 +17,10 @@ declare module 'fastify' {
  * Allows all authenticated users (both admin and regular users)
  */
 export async function sessionAuthMiddleware(request: FastifyRequest, _reply: FastifyReply) {
-  // Development fallback: allow dev admin token
+  // Development fallback: allow dev admin token (development only, strong token only)
   if (config.isDev && config.security.devAdminToken) {
     const devToken = request.headers['x-dev-admin-token'];
-    if (devToken === config.security.devAdminToken) {
+    if (isValidDevAdminToken(devToken, { isDev: config.isDev, token: config.security.devAdminToken })) {
       // Create a mock admin user for dev
       request.user = {
         id: 'dev-admin',

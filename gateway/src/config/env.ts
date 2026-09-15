@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { parseTrustProxy } from '../lib/trust-proxy.js';
+import { MAX_OBJECT_BYTES, parseByteSize } from '../lib/upload-limits.js';
 
 const envSchema = z.object({
   // Server
@@ -6,6 +8,15 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+
+  // Which proxies may set X-Forwarded-For. Default trusts only hops on private
+  // networks (cloudflared, Docker bridge), so a client cannot fake its IP by
+  // sending the header itself. Accepts true/false, a hop count, or IPs/CIDRs
+  // and the presets loopback, linklocal, uniquelocal (comma-separated).
+  TRUST_PROXY: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().default('loopback,linklocal,uniquelocal')
+  ),
 
   // CORS
   CORS_ORIGINS: z.string().default('*'),
@@ -16,6 +27,9 @@ const envSchema = z.object({
   // Rate limiting
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60000),
+  // Per-project request limits per window: "projectId=300,otherProjectId=500".
+  // Projects not listed use RATE_LIMIT_MAX. Invalid entries are ignored with a warning.
+  RATE_LIMIT_PROJECT_OVERRIDES: z.string().default(''),
 
   // Auth rate limiting (for brute-force protection)
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5),
@@ -43,6 +57,16 @@ const envSchema = z.object({
   POSTGRES_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(20).default(5),
   POSTGRES_IDLE_TIMEOUT_MS: z.coerce.number().int().default(30000),
   POSTGRES_CONNECTION_TIMEOUT_MS: z.coerce.number().int().default(5000),
+  // Connections per project database pool (app role serves the public API).
+  // Every cached project holds its own pools, so keep these small.
+  PROJECT_DB_APP_POOL_SIZE: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().min(1).max(50).default(3)
+  ),
+  PROJECT_DB_OWNER_POOL_SIZE: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().min(1).max(50).default(3)
+  ),
 
   // MinIO
   MINIO_ENDPOINT: z.string().default('localhost'),
@@ -77,10 +101,13 @@ const envSchema = z.object({
 
   // Storage
   PRESIGNED_URL_EXPIRY_SECONDS: z.coerce.number().int().min(60).default(3600),
-  MAX_UPLOAD_SIZE_BYTES: z.coerce
-    .number()
-    .int()
-    .default(100 * 1024 * 1024), // 100MB
+  // Default upload limit for every project: bytes or a size with a unit (500MB, 5GB).
+  MAX_UPLOAD_SIZE_BYTES: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : parseByteSize(String(v)) ?? v),
+    z.number().int().positive().max(MAX_OBJECT_BYTES).default(100 * 1024 * 1024) // 100MB
+  ),
+  // Per-project or per-bucket upload limits: "<projectId>=5GB,<projectId>/videos=50GB"
+  STORAGE_UPLOAD_LIMITS: z.string().default(''),
 });
 
 function validateCorsConfig(origins: string | true | string[], isProduction: boolean): void {
@@ -116,10 +143,12 @@ export const config = {
   port: env.PORT,
   host: env.HOST,
   logLevel: env.LOG_LEVEL,
+  trustProxy: parseTrustProxy(env.TRUST_PROXY),
   corsOrigins: env.CORS_ORIGINS === '*' ? true : env.CORS_ORIGINS.split(','),
   cookieDomain: env.COOKIE_DOMAIN,
   rateLimitMax: env.RATE_LIMIT_MAX,
   rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
+  rateLimitProjectOverrides: env.RATE_LIMIT_PROJECT_OVERRIDES,
   bodyLimitBytes: env.BODY_LIMIT_BYTES,
 
   postgres: {
@@ -131,6 +160,8 @@ export const config = {
     maxPoolSize: env.POSTGRES_MAX_POOL_SIZE,
     idleTimeoutMs: env.POSTGRES_IDLE_TIMEOUT_MS,
     connectionTimeoutMs: env.POSTGRES_CONNECTION_TIMEOUT_MS,
+    projectAppPoolSize: env.PROJECT_DB_APP_POOL_SIZE,
+    projectOwnerPoolSize: env.PROJECT_DB_OWNER_POOL_SIZE,
   },
 
   minio: {
@@ -168,6 +199,7 @@ export const config = {
   storage: {
     presignedUrlExpirySeconds: env.PRESIGNED_URL_EXPIRY_SECONDS,
     maxUploadSizeBytes: env.MAX_UPLOAD_SIZE_BYTES,
+    uploadLimits: env.STORAGE_UPLOAD_LIMITS,
   },
 } as const;
 

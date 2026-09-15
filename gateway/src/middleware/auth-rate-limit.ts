@@ -89,6 +89,22 @@ export class AuthRateLimiter {
 }
 
 let instance: AuthRateLimiter | null = null;
+let accountInstance: AuthRateLimiter | null = null;
+
+/**
+ * Attempts per account regardless of IP. The per-IP limiter alone does not stop
+ * a password-guessing run spread over many addresses. Higher than the per-IP
+ * limit, so the owner is not locked out by a few typos from one place.
+ */
+export function getAccountRateLimiter(): AuthRateLimiter {
+  if (!accountInstance) {
+    accountInstance = new AuthRateLimiter({
+      maxAttempts: parseInt(process.env.AUTH_ACCOUNT_RATE_LIMIT_MAX || '20', 10),
+      windowMs: parseInt(process.env.AUTH_ACCOUNT_RATE_LIMIT_WINDOW_MS || '900000', 10),
+    });
+  }
+  return accountInstance;
+}
 
 export function getAuthRateLimiter(): AuthRateLimiter {
   if (!instance) {

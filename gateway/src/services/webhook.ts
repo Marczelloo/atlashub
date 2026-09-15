@@ -1,4 +1,5 @@
 import { createHmac, createHash, timingSafeEqual } from 'crypto';
+import { LRUCache } from 'lru-cache';
 import { platformDb } from '../db/platform.js';
 import { NotFoundError, BadRequestError } from '../lib/errors.js';
 import { auditService } from './audit.js';
@@ -13,6 +14,32 @@ const MAX_PAYLOAD_SIZE = 100 * 1024;
 
 // Max response body size to store (10KB)
 const MAX_RESPONSE_SIZE = 10 * 1024;
+
+/** Enabled webhook row as used for triggering deliveries. */
+export interface ActiveWebhookRow extends Record<string, unknown> {
+  id: string;
+  project_id: string;
+  url: string;
+  method: string;
+  secret_hash: string;
+  events: WebhookEventType[];
+  table_filter: string[];
+  headers: Record<string, string>;
+  timeout_ms: number;
+  max_retries: number;
+  retry_backoff_ms: number;
+}
+
+/** Changes made with raw SQL in the dashboard take effect after at most this long. */
+export const WEBHOOK_CACHE_TTL_MS = 30_000;
+
+const activeWebhookCache = new LRUCache<string, ActiveWebhookRow[]>({
+  max: 500,
+  ttl: WEBHOOK_CACHE_TTL_MS,
+  perf: { now: () => Date.now() },
+  ttlResolution: 0,
+});
+let webhookGeneration = 0;
 
 export interface Webhook {
   id: string;
@@ -307,6 +334,8 @@ export const webhookService = {
       ]
     );
 
+    this.clearWebhookCache(input.projectId);
+
     await auditService.log({
       action: 'webhook.created',
       projectId: input.projectId,
@@ -384,6 +413,8 @@ export const webhookService = {
       params
     );
 
+    this.clearWebhookCache(webhook.projectId);
+
     await auditService.log({
       action: 'webhook.updated',
       projectId: webhook.projectId,
@@ -401,6 +432,7 @@ export const webhookService = {
     }
 
     await platformDb.query('DELETE FROM webhooks WHERE id = $1', [id]);
+    this.clearWebhookCache(webhook.projectId);
 
     await auditService.log({
       action: 'webhook.deleted',
@@ -422,32 +454,85 @@ export const webhookService = {
    * Trigger webhooks for a database event
    * This should be called after insert/update/delete operations
    */
-  async triggerWebhooks(payload: WebhookTriggerPayload): Promise<void> {
-    // Find all enabled webhooks for this project that subscribe to this event
-    const result = await platformDb.query<{
-      id: string;
-      project_id: string;
-      url: string;
-      method: string;
-      secret_hash: string;
-      events: WebhookEventType[];
-      table_filter: string[];
-      headers: Record<string, string>;
-      timeout_ms: number;
-      max_retries: number;
-      retry_backoff_ms: number;
-    }>(
+  /**
+   * Enabled webhooks of a project, cached for WEBHOOK_CACHE_TTL_MS.
+   *
+   * Every insert, update and delete through the public API looks these up, and
+   * most projects have none. Creating, updating, toggling or deleting a webhook
+   * through the API clears the cache for its project immediately.
+   */
+  async getActiveWebhooks(projectId: string): Promise<ActiveWebhookRow[]> {
+    const cached = activeWebhookCache.get(projectId);
+    if (cached) return cached;
+
+    const generation = webhookGeneration;
+    const result = await platformDb.query<ActiveWebhookRow>(
       `SELECT id, project_id, url, method, secret_hash, events, table_filter, headers, timeout_ms, max_retries, retry_backoff_ms
        FROM webhooks
-       WHERE project_id = $1 AND enabled = true AND events @> $2::jsonb`,
-      [payload.projectId, JSON.stringify([payload.eventType])]
+       WHERE project_id = $1 AND enabled = true`,
+      [projectId]
     );
 
-    for (const webhook of result.rows) {
-      // Check table filter
-      if (webhook.table_filter.length > 0 && !webhook.table_filter.includes(payload.tableName)) {
-        continue;
-      }
+    // A read that started before a webhook change must not cache stale rows.
+    if (generation === webhookGeneration) {
+      activeWebhookCache.set(projectId, result.rows);
+    }
+    return result.rows;
+  },
+
+  /** Enabled webhooks subscribed to this event on this table. */
+  async matchingWebhooks(
+    projectId: string,
+    eventType: WebhookEventType,
+    tableName: string
+  ): Promise<ActiveWebhookRow[]> {
+    const webhooks = await this.getActiveWebhooks(projectId);
+    return webhooks.filter(
+      (webhook) =>
+        Array.isArray(webhook.events) &&
+        webhook.events.includes(eventType) &&
+        (!Array.isArray(webhook.table_filter) ||
+          webhook.table_filter.length === 0 ||
+          webhook.table_filter.includes(tableName))
+    );
+  },
+
+  /**
+   * Whether an event would trigger anything. Routes use it to skip the extra
+   * SELECT they run only to build webhook payloads. On lookup failure it answers
+   * `true`, keeping the previous behaviour instead of silently dropping events.
+   */
+  async hasWebhooksFor(
+    projectId: string,
+    eventType: WebhookEventType,
+    tableName: string
+  ): Promise<boolean> {
+    try {
+      return (await this.matchingWebhooks(projectId, eventType, tableName)).length > 0;
+    } catch {
+      return true;
+    }
+  },
+
+  /** Forget cached webhooks of a project (all projects without an id). */
+  clearWebhookCache(projectId?: string): void {
+    webhookGeneration++;
+    if (projectId) {
+      activeWebhookCache.delete(projectId);
+    } else {
+      activeWebhookCache.clear();
+    }
+  },
+
+  async triggerWebhooks(payload: WebhookTriggerPayload): Promise<void> {
+    // Find all enabled webhooks for this project that subscribe to this event
+    const webhooks = await this.matchingWebhooks(
+      payload.projectId,
+      payload.eventType,
+      payload.tableName
+    );
+
+    for (const webhook of webhooks) {
 
       // Create delivery record
       const deliveryId = await this.createDelivery({

@@ -1,6 +1,6 @@
 import type { SqlResult } from '@atlashub/shared';
 import { projectDb } from '../db/project.js';
-import { config } from '../config/env.js';
+import { runtimeSettings } from './runtime-settings.js';
 import { BadRequestError } from '../lib/errors.js';
 
 // Dangerous patterns to block
@@ -42,13 +42,6 @@ export const sqlService = {
 
     const startTime = Date.now();
 
-    // Set statement timeout using parameterized query (security fix)
-    await projectDb.queryAsOwner(
-      projectId,
-      'SET statement_timeout = $1',
-      [`${config.query.statementTimeoutMs}ms`]
-    );
-
     try {
       // If it's a SELECT query, add LIMIT if not present
       let finalSql = sql;
@@ -57,12 +50,26 @@ export const sqlService = {
         if (!hasLimit) {
           // Remove trailing semicolon if present
           finalSql = sql.replace(/;\s*$/, '');
-          // Use validated integer from config (safe because it's a number)
-          finalSql = `${finalSql} LIMIT ${config.query.maxRowsPerQuery}`;
+          // Integer from settings (safe because it's a number)
+          finalSql = `${finalSql} LIMIT ${Math.floor(runtimeSettings.getSqlMaxRows())}`;
         }
       }
 
-      const result = await projectDb.queryAsOwner<Record<string, unknown>>(projectId, finalSql);
+      // The timeout and the query must share one connection, and the timeout
+      // must not outlive the query. `SET statement_timeout = $1` did neither:
+      // Postgres does not accept bind parameters in SET, and a plain SET on a
+      // pooled connection applies to whichever query uses it next.
+      const timeoutMs = Math.max(1, Math.floor(runtimeSettings.getSqlStatementTimeoutMs()));
+      const result = await projectDb.withOwnerClient(projectId, async (client) => {
+        await client.query(`SET statement_timeout = ${timeoutMs}`);
+        try {
+          return await client.query<Record<string, unknown>>(finalSql);
+        } finally {
+          // The connection goes back to the pool used by DDL, imports and
+          // backups, which must not inherit the editor's timeout.
+          await client.query('RESET statement_timeout').catch(() => undefined);
+        }
+      });
 
       const executionTimeMs = Date.now() - startTime;
 

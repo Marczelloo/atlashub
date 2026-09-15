@@ -47,7 +47,7 @@ x-api-key: pk_xxxxxxxxxxxxxxxxxxxxxxxx
 
 | Key Type | Prefix | Permissions |
 |----------|--------|-------------|
-| **Publishable** | `pk_` | Read tables, select rows, request signed URLs |
+| **Publishable** | `pk_` | Read only: list tables, select rows, read batches, signed download URLs |
 | **Secret** | `sk_` | All operations including write, delete, schema management, list storage |
 
 ### Session Authentication (Admin API)
@@ -236,6 +236,7 @@ x-api-key: <your-key>
 | `order` | Sort by column with direction | `created_at.desc` |
 | `limit` | Maximum rows (default: 100, max: 1000) | `50` |
 | `offset` | Skip rows for pagination | `100` |
+| `count` | `exact` adds `meta.count`: rows matching the filters, ignoring `limit`/`offset`. With `limit=0` no rows are fetched | `exact` |
 
 **Filter Operators:**
 
@@ -270,6 +271,50 @@ x-api-key: sk_xxx
 }
 ```
 
+**Counting without fetching rows:**
+```http
+GET /v1/db/ai_usage?eq.user_id=u1&eq.kind=stylist&count=exact&limit=0
+x-api-key: sk_xxx
+```
+
+```json
+{ "data": [], "meta": { "rowCount": 0, "count": 7 } }
+```
+
+### Read Batch
+
+Up to 10 reads in one request. Each operation takes the same parameters as
+`GET /v1/db/:table`, passed as an object; array values are joined with commas
+(for `in.` filters). The request counts once against the rate limit.
+
+```http
+POST /v1/db/read-batch
+Content-Type: application/json
+x-api-key: <your-key>
+
+{
+  "operations": [
+    { "table": "sessions", "query": { "eq.token_hash": "abc", "limit": 1 } },
+    { "table": "items", "query": { "eq.user_id": "u1", "count": "exact", "limit": 0 } },
+    { "table": "ingest_jobs", "query": { "eq.user_id": "u1", "in.status": ["pending", "tagging"] } }
+  ]
+}
+```
+
+**Response** — results in operation order, each shaped like a single read:
+```json
+{
+  "data": [
+    { "data": [{ "id": "s1" }], "meta": { "rowCount": 1 } },
+    { "data": [], "meta": { "rowCount": 0, "count": 12 } },
+    { "data": [], "meta": { "rowCount": 0 } }
+  ]
+}
+```
+
+If any operation fails, the whole request fails with that operation's status
+and a message prefixed with its index, e.g. `Operation 1: Table "x" not found`.
+
 ### Insert Rows
 
 **Requires secret key.**
@@ -295,6 +340,9 @@ x-api-key: <secret-key>
 |-----------|------|-------------|
 | `rows` | array | Array of objects to insert (max 1000) |
 | `returning` | boolean | Return inserted rows if true |
+
+All rows are validated first and inserted atomically: either every row is
+written or none is. A column omitted from some rows gets its default value.
 
 **Response:**
 ```json
@@ -735,7 +783,7 @@ x-api-key: <your-key>
 | `bucket` | string | Logical bucket name (required) |
 | `path` | string | Path within the bucket (required) |
 | `contentType` | string | MIME type of the file (required) |
-| `maxSize` | number | Maximum file size in bytes (optional, hard ceiling: 5GB; server config may be lower) |
+| `maxSize` | number | Exact file size in bytes (required). Signed as `Content-Length`; single uploads up to 5 GiB, larger files use multipart. Limited by `MAX_UPLOAD_SIZE_BYTES` and `STORAGE_UPLOAD_LIMITS` (413 when exceeded) |
 
 **Response:**
 ```json

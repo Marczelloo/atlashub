@@ -25,8 +25,8 @@ x-api-key: pk_xxxxxxxxxxxxxxxxxxxxxxxx
 
 | Key Type        | Prefix | Permissions                                              |
 | --------------- | ------ | -------------------------------------------------------- |
-| **Publishable** | `pk_`  | Read tables, select rows, request signed URLs            |
-| **Secret**      | `sk_`  | All above + insert, update, delete, list storage objects |
+| **Publishable** | `pk_`  | Read only: list tables, select rows, read batches, signed download URLs |
+| **Secret**      | `sk_`  | All above + insert, update, delete, uploads, deleting and listing files, schema changes |
 
 ### Security Rules
 
@@ -619,10 +619,15 @@ x-api-key: <your-key>
 - `bucket` (required): Logical bucket name (e.g., `uploads`, `private`)
 - `path` (required): Path within the bucket
 - `contentType` (required): MIME type of the file
-- `maxSize` (optional): Maximum file size in bytes (default server limit: 100MB, hard ceiling: 5GB)
+- `maxSize` (required): Exact size of the file in bytes. It is signed into the URL as `Content-Length`, so the upload must have exactly this size. Single uploads are limited to 5 GiB; larger files must use multipart upload.
 
-The server limit is controlled by `MAX_UPLOAD_SIZE_BYTES`. Set it explicitly to
-`5368709120` for uploads up to 5GB.
+Upload limits are set on the server:
+
+- `MAX_UPLOAD_SIZE_BYTES` - default limit for every project, in bytes or with a unit (`100MB`, `5GB`).
+- `STORAGE_UPLOAD_LIMITS` - overrides per project or per logical bucket, e.g.
+  `STORAGE_UPLOAD_LIMITS=<projectId>=5GB,<projectId>/videos=50GB`. A bucket entry wins over its project entry.
+
+Uploads over the limit get `413 PAYLOAD_TOO_LARGE`. Multipart uploads are checked again before completion: if the uploaded parts exceed the size declared at `/multipart/initiate` (or the limit), the upload is aborted.
 
 **Response:**
 

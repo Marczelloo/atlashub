@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authService } from '../services/auth.js';
 import { config } from '../config/env.js';
 import { BadRequestError, TooManyRequestsError } from '../lib/errors.js';
-import { getAuthRateLimiter } from '../middleware/auth-rate-limit.js';
+import { getAccountRateLimiter, getAuthRateLimiter } from '../middleware/auth-rate-limit.js';
 import { validatePassword } from '../utils/password-validator.js';
 
 const loginSchema = z.object({
@@ -54,10 +54,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     const { email, password } = parsed.data;
     const ip = request.ip;
     const rateLimiter = getAuthRateLimiter();
+    const accountLimiter = getAccountRateLimiter();
+    const accountKey = `account:${email.toLowerCase()}`;
 
-    // Check rate limit before attempting login
+    // Check rate limits before attempting login (and before the costly bcrypt)
     try {
       rateLimiter.checkLimit(ip, email);
+      accountLimiter.checkLimit(accountKey);
     } catch {
       throw new TooManyRequestsError('Too many failed login attempts. Please try again later.');
     }
@@ -67,6 +70,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
       // Reset rate limit on successful login
       rateLimiter.resetAttempts(ip, email);
+      accountLimiter.resetAttempts(accountKey);
 
       const token = await authService.generateToken(user);
       reply.setCookie(COOKIE_NAME, token, getCookieOptions());

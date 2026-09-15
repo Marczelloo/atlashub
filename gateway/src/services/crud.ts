@@ -8,6 +8,51 @@ import { BadRequestError, NotFoundError } from '../lib/errors.js';
 const tableInfoCache = new Map<string, { tables: TableInfo[]; timestamp: number }>();
 const CACHE_TTL_MS = 60000; // 1 minute
 
+// Postgres accepts at most 65535 bind parameters per statement; stay well below.
+const MAX_INSERT_PARAMS = 30000;
+
+/**
+ * INSERT statements for a batch of already validated rows: one multi-row
+ * statement per chunk instead of one statement per row. A column missing from
+ * a row gets DEFAULT, exactly like omitting it from a single-row INSERT did.
+ */
+export function buildInsertStatements(
+  table: string,
+  rows: Record<string, unknown>[],
+  columns: string[],
+  returning: boolean,
+  maxParams = MAX_INSERT_PARAMS
+): { sql: string; values: unknown[] }[] {
+  const returningClause = returning ? ' RETURNING *' : '';
+
+  // A row with no columns at all can only be written as DEFAULT VALUES.
+  if (columns.length === 0) {
+    return rows.map(() => ({ sql: `INSERT INTO "${table}" DEFAULT VALUES${returningClause}`, values: [] }));
+  }
+
+  const columnList = columns.map((col) => `"${col}"`).join(', ');
+  const rowsPerChunk = Math.max(1, Math.floor(maxParams / columns.length));
+  const statements: { sql: string; values: unknown[] }[] = [];
+
+  for (let start = 0; start < rows.length; start += rowsPerChunk) {
+    const values: unknown[] = [];
+    const tuples = rows.slice(start, start + rowsPerChunk).map((row) => {
+      const cells = columns.map((col) => {
+        if (!Object.prototype.hasOwnProperty.call(row, col)) return 'DEFAULT';
+        values.push(row[col]);
+        return `$${values.length}`;
+      });
+      return `(${cells.join(', ')})`;
+    });
+    statements.push({
+      sql: `INSERT INTO "${table}" (${columnList}) VALUES ${tuples.join(', ')}${returningClause}`,
+      values,
+    });
+  }
+
+  return statements;
+}
+
 // Valid PostgreSQL data types (subset for safety)
 const ALLOWED_DATA_TYPES = new Set([
   'text',
@@ -36,6 +81,36 @@ const ALLOWED_DATA_TYPES = new Set([
   'float',
   'bytea',
 ]);
+
+/**
+ * Validated, canonical column type: an allowed base type, optionally followed by
+ * a length or precision such as varchar(255) or numeric(10, 2), and nothing else.
+ *
+ * The type string is written into DDL as-is. Checking only the part before the
+ * first parenthesis let "varchar(1)); <any SQL>" through.
+ */
+export function normalizeColumnType(type: string): string {
+  const match = /^\s*([a-z]+(?: precision)?)\s*(?:\(\s*(\d{1,4})\s*(?:,\s*(\d{1,4})\s*)?\))?\s*$/i.exec(type);
+  const baseType = match?.[1].toLowerCase().replace(/\s+/g, ' ');
+  if (!match || !baseType || !ALLOWED_DATA_TYPES.has(baseType)) {
+    throw new BadRequestError(
+      `Invalid data type: ${type}. Allowed: ${[...ALLOWED_DATA_TYPES].join(', ')}, optionally with (length) or (precision, scale)`
+    );
+  }
+  if (match[2] === undefined) return baseType;
+  return match[3] === undefined ? `${baseType}(${match[2]})` : `${baseType}(${match[2]}, ${match[3]})`;
+}
+
+/**
+ * Raw SQL expressions (USING, CHECK, partial index WHERE) are restricted to a
+ * safe character set. Comments are refused as well: they could hide the rest of
+ * the generated statement.
+ */
+function assertSafeExpression(expression: string, pattern: RegExp, message: string): void {
+  if (!pattern.test(expression) || expression.includes('--') || expression.includes('/*')) {
+    throw new BadRequestError(message);
+  }
+}
 
 // Reserved table names
 const RESERVED_TABLE_NAMES = new Set(['pg_catalog', 'information_schema', 'pg_toast', 'pg_temp']);
@@ -130,8 +205,12 @@ export const crudService = {
       limit?: number;
       offset?: number;
       filters?: ParsedFilter[];
+      /** Also return the number of rows matching the filters, ignoring limit and offset. */
+      count?: boolean;
+      /** Skip fetching rows; only meaningful together with `count`. */
+      countOnly?: boolean;
     }
-  ): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; count?: number }> {
     // Validate table exists
     const tables = await this.getTables(projectId);
     const tableInfo = tables.find((t) => t.tableName === table);
@@ -173,9 +252,26 @@ export const crudService = {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const result = await projectDb.queryAsApp<Record<string, unknown>>(projectId, sql, whereValues);
+    const countSql = `SELECT COUNT(*)::bigint AS count FROM "${table}" ${whereClause}`;
 
-    return { rows: result.rows, rowCount: result.rowCount || 0 };
+    const [result, countResult] = await Promise.all([
+      options.count && options.countOnly
+        ? Promise.resolve({ rows: [] as Record<string, unknown>[], rowCount: 0 })
+        : projectDb.queryAsApp<Record<string, unknown>>(projectId, sql, whereValues),
+      options.count
+        ? projectDb.queryAsApp<{ count: string }>(projectId, countSql, whereValues)
+        : Promise.resolve(null),
+    ]);
+
+    const response: { rows: Record<string, unknown>[]; rowCount: number; count?: number } = {
+      rows: result.rows,
+      rowCount: result.rowCount || 0,
+    };
+    if (countResult) {
+      // pg returns bigint as a string; counts fit comfortably in a JS number.
+      response.count = Number(countResult.rows[0]?.count ?? 0);
+    }
+    return response;
   },
 
   async insert(
@@ -192,37 +288,41 @@ export const crudService = {
     }
 
     const allowedColumns = tableInfo.columns.map((c) => c.name);
-    const results: Record<string, unknown>[] = [];
 
+    // Validate every row before writing anything. Rows used to be inserted one
+    // statement at a time, so an invalid column in row 5 left rows 1-4 behind.
+    const columns: string[] = [];
     for (const row of rows) {
-      const columns: string[] = [];
-      const values: unknown[] = [];
-      const placeholders: string[] = [];
-      let paramIndex = 1;
-
-      for (const [col, val] of Object.entries(row)) {
+      for (const col of Object.keys(row)) {
         if (!allowedColumns.includes(col)) {
           throw new BadRequestError(`Invalid column: ${col}`);
         }
-        columns.push(`"${col}"`);
-        values.push(val);
-        placeholders.push(`$${paramIndex}`);
-        paramIndex++;
-      }
-
-      const sql = `
-        INSERT INTO "${table}" (${columns.join(', ')})
-        VALUES (${placeholders.join(', ')})
-        ${returning ? 'RETURNING *' : ''}
-      `;
-
-      const result = await projectDb.queryAsApp<Record<string, unknown>>(projectId, sql, values);
-      if (returning && result.rows.length > 0) {
-        results.push(result.rows[0]);
+        if (!columns.includes(col)) columns.push(col);
       }
     }
 
-    return results;
+    const statements = buildInsertStatements(table, rows, columns, returning);
+
+    // A single statement is atomic on its own; several run in one transaction
+    // so a failing chunk does not leave earlier chunks behind.
+    if (statements.length === 1) {
+      const [statement] = statements;
+      const result = await projectDb.queryAsApp<Record<string, unknown>>(
+        projectId,
+        statement.sql,
+        statement.values
+      );
+      return returning ? result.rows : [];
+    }
+
+    return projectDb.transactionAsApp(projectId, async (client) => {
+      const results: Record<string, unknown>[] = [];
+      for (const statement of statements) {
+        const result = await client.query<Record<string, unknown>>(statement.sql, statement.values);
+        if (returning) results.push(...result.rows);
+      }
+      return results;
+    });
   },
 
   async update(
@@ -341,14 +441,7 @@ export const crudService = {
       validateIdentifier(col.name, 'column');
 
       // Validate and normalize type
-      const baseType = col.type.toLowerCase().split('(')[0].trim();
-      if (!ALLOWED_DATA_TYPES.has(baseType)) {
-        throw new BadRequestError(
-          `Invalid data type: ${col.type}. Allowed: ${[...ALLOWED_DATA_TYPES].join(', ')}`
-        );
-      }
-
-      let def = `"${col.name}" ${col.type}`;
+      let def = `"${col.name}" ${normalizeColumnType(col.type)}`;
 
       if (col.nullable === false) {
         def += ' NOT NULL';
@@ -437,12 +530,7 @@ export const crudService = {
     validateIdentifier(tableName, 'table');
     validateIdentifier(column.name, 'column');
 
-    const baseType = column.type.toLowerCase().split('(')[0].trim();
-    if (!ALLOWED_DATA_TYPES.has(baseType)) {
-      throw new BadRequestError(`Invalid data type: ${column.type}`);
-    }
-
-    let def = `"${column.name}" ${column.type}`;
+    let def = `"${column.name}" ${normalizeColumnType(column.type)}`;
 
     if (column.nullable === false) {
       def += ' NOT NULL';
@@ -556,16 +644,14 @@ export const crudService = {
 
     // Handle type change
     if (changes.type) {
-      const baseType = changes.type.toLowerCase().split('(')[0].trim();
-      if (!ALLOWED_DATA_TYPES.has(baseType)) {
-        throw new BadRequestError(`Invalid data type: ${changes.type}`);
-      }
-      let typeStmt = `ALTER COLUMN "${columnName}" TYPE ${changes.type}`;
+      let typeStmt = `ALTER COLUMN "${columnName}" TYPE ${normalizeColumnType(changes.type)}`;
       if (changes.using) {
         // Validate USING clause - only allow safe expressions
-        if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/]+$/.test(changes.using)) {
-          throw new BadRequestError('Invalid USING clause');
-        }
+        assertSafeExpression(
+          changes.using,
+          /^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/]+$/,
+          'Invalid USING clause'
+        );
         typeStmt += ` USING ${changes.using}`;
       }
       alterStatements.push(typeStmt);
@@ -616,9 +702,11 @@ export const crudService = {
           throw new BadRequestError('Expression is required for CHECK constraint');
         }
         // Validate expression - basic safety check
-        if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/.test(expression)) {
-          throw new BadRequestError('Invalid CHECK constraint expression');
-        }
+        assertSafeExpression(
+          expression,
+          /^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/,
+          'Invalid CHECK constraint expression'
+        );
         alterStatements.push(`ADD CONSTRAINT "${name}" CHECK (${expression})`);
       } else if (type === 'unique') {
         alterStatements.push(`ADD CONSTRAINT "${name}" UNIQUE ("${columnName}")`);
@@ -659,9 +747,11 @@ export const crudService = {
 
     // Validate WHERE clause
     if (options.where) {
-      if (!/^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/.test(options.where)) {
-        throw new BadRequestError('Invalid WHERE clause');
-      }
+      assertSafeExpression(
+        options.where,
+        /^[a-zA-Z0-9_"'\s\(\)\.\:\:\+\-\*\/\<\>\=\!]+$/,
+        'Invalid WHERE clause'
+      );
     }
 
     const uniqueClause = options.unique ? 'UNIQUE ' : '';

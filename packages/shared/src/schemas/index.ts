@@ -67,7 +67,7 @@ export const signedUploadRequestSchema = z.object({
     .int()
     .min(1)
     .max(5 * 1024 * 1024 * 1024)
-    .optional(), // hard ceiling 5GB; server config may be lower
+    .optional(), // exact file size, signed as Content-Length; required by the server. S3 single-PUT ceiling 5 GiB
 });
 
 export const createBucketSchema = z.object({
@@ -84,7 +84,8 @@ export const multipartInitiateRequestSchema = z.object({
   bucket: bucketNameSchema,
   path: objectPathSchema,
   contentType: z.string().min(1).max(255),
-  size: z.number().int().min(1).max(5 * 1024 * 1024 * 1024),
+  // S3 object ceiling (5 TiB); the server's configured upload limit applies on top
+  size: z.number().int().min(1).max(5 * 1024 * 1024 * 1024 * 1024),
 });
 
 export const multipartPartRequestSchema = z.object({

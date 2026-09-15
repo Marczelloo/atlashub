@@ -6,6 +6,8 @@ import { projectDb } from '../db/project.js';
 import { config } from '../config/env.js';
 import { generateApiKey, hashApiKey, encrypt, generateSecurePassword } from '../lib/crypto.js';
 import { storageService } from './storage.js';
+import { apiKeyService } from './api-key.js';
+import { webhookService } from './webhook.js';
 import { NotFoundError } from '../lib/errors.js';
 import { auditService } from './audit.js';
 
@@ -274,6 +276,11 @@ export const projectService = {
       await client.query('DELETE FROM audit_logs WHERE project_id = $1', [id]);
       await client.query('DELETE FROM projects WHERE id = $1', [id]);
     });
+
+    // Cached keys, buckets and webhooks of the deleted project must stop working now.
+    apiKeyService.clearKeyCache();
+    storageService.clearBucketCache(id);
+    webhookService.clearWebhookCache(id);
 
     // DROP DATABASE and DROP ROLE cannot run inside a transaction block
     await platformDb.query(`DROP DATABASE IF EXISTS "${dbName}"`);

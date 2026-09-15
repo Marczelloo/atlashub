@@ -10,13 +10,20 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   GetObjectCommand,
+  ListPartsCommand,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
+import { LRUCache } from 'lru-cache';
 import { config } from '../config/env.js';
 import { platformDb } from '../db/platform.js';
-import { NotFoundError, BadRequestError } from '../lib/errors.js';
+import { AppError, NotFoundError, BadRequestError } from '../lib/errors.js';
+import {
+  parseUploadLimitOverrides,
+  resolveUploadLimit,
+  SINGLE_PUT_MAX_BYTES,
+} from '../lib/upload-limits.js';
 
 // S3 allows max 1000 objects per DeleteObjects request
 const S3_BATCH_DELETE_SIZE = 1000;
@@ -64,7 +71,25 @@ function validateObjectKey(key: string): void {
   }
 }
 
+/**
+ * Logical buckets known to exist, per project. Every signed upload checks its
+ * bucket; a batch of uploads used to repeat the same platform query each time.
+ * Only positive results are cached, so a bucket created a moment ago works at
+ * once. Buckets are removed only together with their project, which clears
+ * the cache; removal by raw SQL takes effect after at most the TTL.
+ */
+export const BUCKET_CACHE_TTL_MS = 60_000;
+const knownBuckets = new LRUCache<string, true>({
+  max: 5000,
+  ttl: BUCKET_CACHE_TTL_MS,
+  perf: { now: () => Date.now() },
+  ttlResolution: 0,
+});
+
 async function assertLogicalBucket(projectId: string, logicalBucket: string): Promise<void> {
+  const cacheKey = `${projectId}/${logicalBucket}`;
+  if (knownBuckets.get(cacheKey)) return;
+
   const bucketResult = await platformDb.query<{ id: string }>(
     'SELECT id FROM buckets WHERE project_id = $1 AND name = $2',
     [projectId, logicalBucket]
@@ -73,6 +98,57 @@ async function assertLogicalBucket(projectId: string, logicalBucket: string): Pr
   if (bucketResult.rows.length === 0) {
     throw new NotFoundError(`Bucket "${logicalBucket}" not found`);
   }
+  knownBuckets.set(cacheKey, true);
+}
+
+const uploadLimitOverrides = parseUploadLimitOverrides(config.storage.uploadLimits);
+if (uploadLimitOverrides.invalid.length > 0) {
+  console.warn(`Ignoring invalid STORAGE_UPLOAD_LIMITS entries: ${uploadLimitOverrides.invalid.join(', ')}`);
+}
+
+/** Upload limit in bytes for a logical bucket of a project. */
+function uploadLimitFor(projectId: string, logicalBucket: string): number {
+  return resolveUploadLimit(
+    uploadLimitOverrides,
+    config.storage.maxUploadSizeBytes,
+    projectId,
+    logicalBucket
+  );
+}
+
+function assertWithinUploadLimit(
+  projectId: string,
+  logicalBucket: string,
+  size: number,
+  field: string
+): void {
+  const limit = uploadLimitFor(projectId, logicalBucket);
+  if (size > limit) {
+    throw new AppError(413, 'PAYLOAD_TOO_LARGE', `${field} cannot exceed ${limit} bytes`);
+  }
+}
+
+/** Total bytes of the uploaded parts with the given numbers. */
+async function sumUploadedParts(
+  bucket: string,
+  key: string,
+  uploadId: string,
+  partNumbers: Set<number>
+): Promise<number> {
+  let total = 0;
+  let marker: string | undefined;
+  do {
+    const page = await s3Client.send(
+      new ListPartsCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumberMarker: marker })
+    );
+    for (const part of page.Parts ?? []) {
+      if (part.PartNumber !== undefined && partNumbers.has(part.PartNumber)) {
+        total += part.Size ?? 0;
+      }
+    }
+    marker = page.IsTruncated ? page.NextPartNumberMarker : undefined;
+  } while (marker);
+  return total;
 }
 
 function validateMultipartObjectKey(logicalBucket: string, objectKey: string): string {
@@ -157,6 +233,17 @@ async function deleteAllObjectsInBucket(bucketName: string): Promise<void> {
 }
 
 export const storageService = {
+  /** Forget known logical buckets of a project (all projects without an id). */
+  clearBucketCache(projectId?: string): void {
+    if (!projectId) {
+      knownBuckets.clear();
+      return;
+    }
+    for (const key of knownBuckets.keys()) {
+      if (key.startsWith(`${projectId}/`)) knownBuckets.delete(key);
+    }
+  },
+
   async createProjectBucket(projectId: string): Promise<void> {
     const bucketName = getPhysicalBucketName(projectId);
     await s3Client.send(new CreateBucketCommand({ Bucket: bucketName }));
@@ -181,8 +268,19 @@ export const storageService = {
   ): Promise<{ objectKey: string; uploadUrl: string; expiresIn: number }> {
     await assertLogicalBucket(projectId, logicalBucket);
 
-    if (maxSize && maxSize > config.storage.maxUploadSizeBytes) {
-      throw new BadRequestError(`maxSize cannot exceed ${config.storage.maxUploadSizeBytes} bytes`);
+    // maxSize is signed into the URL as the exact Content-Length, which is the
+    // only way a presigned PUT can limit its size. Without it the URL accepted
+    // an upload of any size.
+    if (!maxSize) {
+      throw new BadRequestError('maxSize is required: the exact size of the file in bytes');
+    }
+    assertWithinUploadLimit(projectId, logicalBucket, maxSize, 'maxSize');
+    if (maxSize > SINGLE_PUT_MAX_BYTES) {
+      throw new AppError(
+        413,
+        'PAYLOAD_TOO_LARGE',
+        `Files over ${SINGLE_PUT_MAX_BYTES} bytes must use multipart upload (/v1/storage/multipart/initiate)`
+      );
     }
 
     // Validate path to prevent path traversal
@@ -196,7 +294,7 @@ export const storageService = {
       Bucket: physicalBucket,
       Key: objectKey,
       ContentType: contentType,
-      ...(maxSize && { ContentLength: maxSize }),
+      ContentLength: maxSize,
     });
 
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
@@ -209,7 +307,7 @@ export const storageService = {
          content_type = EXCLUDED.content_type,
          size = EXCLUDED.size,
          created_at = NOW()`,
-      [randomUUID(), projectId, logicalBucket, objectKey, contentType, maxSize || 0]
+      [randomUUID(), projectId, logicalBucket, objectKey, contentType, maxSize]
     );
 
     return { objectKey, uploadUrl: getPublicUrl(uploadUrl), expiresIn };
@@ -224,9 +322,7 @@ export const storageService = {
   ): Promise<{ objectKey: string; uploadId: string; expiresIn: number }> {
     await assertLogicalBucket(projectId, logicalBucket);
 
-    if (size > config.storage.maxUploadSizeBytes) {
-      throw new BadRequestError(`size cannot exceed ${config.storage.maxUploadSizeBytes} bytes`);
-    }
+    assertWithinUploadLimit(projectId, logicalBucket, size, 'size');
 
     validateObjectKey(path);
 
@@ -309,6 +405,45 @@ export const storageService = {
     const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
     if (sortedParts.some((part, index) => part.partNumber !== index + 1 || !part.etag.trim())) {
       throw new BadRequestError('Multipart parts must be sequential and include ETags');
+    }
+
+    // Part URLs cannot limit the size of each part, so the real size is checked
+    // before the parts become an object: the uploaded parts listed for
+    // completion must fit the size declared at initiation and the current limit.
+    // An oversized upload is aborted, which frees the stored parts.
+    const uploadedBytes = await sumUploadedParts(
+      getPhysicalBucketName(projectId),
+      validatedObjectKey,
+      uploadId,
+      new Set(sortedParts.map((part) => part.partNumber))
+    );
+    const declared = await platformDb.query<{ size: string | number }>(
+      'SELECT size FROM file_metadata WHERE project_id = $1 AND object_key = $2',
+      [projectId, validatedObjectKey]
+    );
+    const declaredSize = Number(declared.rows[0]?.size ?? 0);
+    const limit = uploadLimitFor(projectId, logicalBucket);
+    const allowed = declaredSize > 0 ? Math.min(declaredSize, limit) : limit;
+
+    if (uploadedBytes > allowed) {
+      await s3Client
+        .send(
+          new AbortMultipartUploadCommand({
+            Bucket: getPhysicalBucketName(projectId),
+            Key: validatedObjectKey,
+            UploadId: uploadId,
+          })
+        )
+        .catch(() => undefined);
+      await platformDb.query('DELETE FROM file_metadata WHERE project_id = $1 AND object_key = $2', [
+        projectId,
+        validatedObjectKey,
+      ]);
+      throw new AppError(
+        413,
+        'PAYLOAD_TOO_LARGE',
+        `Uploaded parts total ${uploadedBytes} bytes, more than the allowed ${allowed} bytes; upload aborted`
+      );
     }
 
     await s3Client.send(

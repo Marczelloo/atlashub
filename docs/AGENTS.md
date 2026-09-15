@@ -58,7 +58,8 @@ AtlasHub is a self-hosted backend platform providing:
 ```bash
 # Database CRUD
 GET  /v1/db/tables                    # List tables
-GET  /v1/db/:table                    # Select rows
+GET  /v1/db/:table                    # Select rows (count=exact adds meta.count)
+POST /v1/db/read-batch                # Up to 10 selects in one request
 POST /v1/db/:table                    # Insert rows
 PATCH /v1/db/:table                   # Update rows (filter required)
 DELETE /v1/db/:table                  # Delete rows (filter required)

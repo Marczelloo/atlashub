@@ -33,7 +33,7 @@ ATLASHUB_SECRET_KEY=sk_xxxxxxxxxxxxxxxxxxxxxxxx
 | **Server Actions / API Routes / Backend** | `ATLASHUB_SECRET_KEY`                  | Full access, never exposed to clients |
 | **Client components (if needed)**         | `NEXT_PUBLIC_ATLASHUB_PUBLISHABLE_KEY` | Limited access, safe for browsers     |
 
-> **Best Practice:** Always use the secret key on the server. Only use the publishable key on the client if you need to request signed upload URLs directly from the browser.
+> **Best Practice:** Always use the secret key on the server. The publishable key is read-only (select rows, signed download URLs); uploads and all writes need the secret key, so request signed upload URLs through your backend.
 
 ## Quick Test: List Tables
 

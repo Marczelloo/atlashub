@@ -4,7 +4,7 @@ import type { ProjectContext } from '@atlashub/shared';
 import { z } from 'zod';
 import { crudService } from '../../services/crud.js';
 import { webhookService } from '../../services/webhook.js';
-import { BadRequestError, ForbiddenError } from '../../lib/errors.js';
+import { AppError, BadRequestError, ForbiddenError } from '../../lib/errors.js';
 import { parseFilters, parseOrder, parseSelect } from '../../lib/query-parser.js';
 
 declare module 'fastify' {
@@ -93,6 +93,53 @@ const truncateBodySchema = z.object({
   cascade: z.boolean().optional().default(false),
 });
 
+/** Reads allowed in one POST /v1/db/read-batch request. */
+export const READ_BATCH_MAX_OPERATIONS = 10;
+
+const readBatchBodySchema = z.object({
+  operations: z
+    .array(
+      z.object({
+        table: z.string().min(1).max(63),
+        // The same parameters GET /v1/db/:table accepts in its query string:
+        // select, order, limit, offset, count and operator.column filters.
+        query: z
+          .record(
+            z.string(),
+            z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))])
+          )
+          .optional(),
+      })
+    )
+    .min(1)
+    .max(READ_BATCH_MAX_OPERATIONS),
+});
+
+/** Read options from GET query parameters, shared by the single and batch read routes. */
+function parseReadOptions(query: Record<string, string | undefined>) {
+  const limit = query.limit ? parseInt(query.limit, 10) : undefined;
+  // count=exact adds the number of matching rows. limit=0 used to mean "default
+  // limit"; it keeps that meaning unless a count is requested, in which case it
+  // means "count only, no rows".
+  const count = query.count === 'exact';
+
+  return {
+    select: parseSelect(query.select),
+    order: parseOrder(query.order),
+    limit,
+    offset: query.offset ? parseInt(query.offset, 10) : undefined,
+    filters: parseFilters(query),
+    count,
+    countOnly: count && limit === 0,
+  };
+}
+
+function readMeta(result: { rowCount: number; count?: number }) {
+  return result.count === undefined
+    ? { rowCount: result.rowCount }
+    : { rowCount: result.rowCount, count: result.count };
+}
+
 // Helper to check if request has secret key permissions
 function requireSecretKey(request: FastifyRequest): void {
   if (request.projectContext.keyType !== 'secret') {
@@ -120,23 +167,65 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
       const { table } = request.params;
       const query = request.query;
 
-      const select = parseSelect(query.select);
-      const order = parseOrder(query.order);
-      const limit = query.limit ? parseInt(query.limit, 10) : undefined;
-      const offset = query.offset ? parseInt(query.offset, 10) : undefined;
-      const filters = parseFilters(query);
+      const result = await crudService.select(
+        projectContext.projectId,
+        table,
+        parseReadOptions(query)
+      );
 
-      const result = await crudService.select(projectContext.projectId, table, {
-        select,
-        order,
-        limit,
-        offset,
-        filters,
-      });
-
-      return reply.send({ data: result.rows, meta: { rowCount: result.rowCount } });
+      return reply.send({ data: result.rows, meta: readMeta(result) });
     }
   );
+
+  // Several reads in one request. Each operation is a GET /v1/db/:table with its
+  // query parameters as an object, so clients that make many small reads per
+  // screen spend one request of their rate-limit budget instead of many.
+  // The path contains a hyphen, which no table name can, so it cannot shadow
+  // POST /v1/db/:table.
+  fastify.post('/read-batch', async (request, reply) => {
+    const bodyResult = readBatchBodySchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      throw new BadRequestError('Invalid request body', bodyResult.error.flatten().fieldErrors);
+    }
+
+    const { projectContext } = request;
+    const { operations } = bodyResult.data;
+
+    for (const [index, operation] of operations.entries()) {
+      if (!tableNameSchema.safeParse(operation.table).success) {
+        throw new BadRequestError(`Operation ${index}: Invalid table name`);
+      }
+    }
+
+    const results = await Promise.all(
+      operations.map(async (operation, index) => {
+        const query: Record<string, string> = {};
+        for (const [key, value] of Object.entries(operation.query ?? {})) {
+          query[key] = Array.isArray(value) ? value.join(',') : String(value);
+        }
+        try {
+          const result = await crudService.select(
+            projectContext.projectId,
+            operation.table,
+            parseReadOptions(query)
+          );
+          return { data: result.rows, meta: readMeta(result) };
+        } catch (error) {
+          if (error instanceof AppError) {
+            throw new AppError(
+              error.statusCode,
+              error.error,
+              `Operation ${index}: ${error.message}`,
+              error.details
+            );
+          }
+          throw error;
+        }
+      })
+    );
+
+    return reply.send({ data: results });
+  });
 
   // INSERT rows
   fastify.post<{ Params: { table: string } }>('/:table', async (request, reply) => {
@@ -196,9 +285,17 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         throw new BadRequestError('At least one filter is required for UPDATE');
       }
 
+      // The extra SELECT and the triggers exist only for webhooks. Most projects
+      // have none, so skip both unless an enabled webhook listens to this event.
+      const notify = await webhookService.hasWebhooksFor(
+        projectContext.projectId,
+        'record.updated',
+        table
+      );
+
       // Fetch old records before update for webhook payload (if returning is requested)
       let oldRecords: Record<string, unknown>[] = [];
-      if (returning) {
+      if (returning && notify) {
         const oldResult = await crudService.select(projectContext.projectId, table, {
           filters,
           limit: 100, // Reasonable limit for webhook payloads
@@ -215,7 +312,7 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
       );
 
       // Trigger webhooks for each updated record
-      if (returning && result.length > 0) {
+      if (notify && returning && result.length > 0) {
         for (let i = 0; i < result.length; i++) {
           const newRecord = result[i];
           const oldRecord = oldRecords[i];
@@ -231,7 +328,7 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
             request.log.error({ error, table, projectId: projectContext.projectId }, 'Webhook trigger failed');
           });
         }
-      } else if (!returning) {
+      } else if (notify && !returning) {
         // If not returning, trigger a generic webhook without record details
         webhookService.triggerWebhooks({
           eventType: 'record.updated',
@@ -265,11 +362,18 @@ export const dbRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => 
         throw new BadRequestError('At least one filter is required for DELETE');
       }
 
-      // Fetch records before delete for webhook payload
-      const recordsToDelete = await crudService.select(projectContext.projectId, table, {
-        filters,
-        limit: 100, // Reasonable limit for webhook payloads
-      });
+      // Fetch records before delete for webhook payload, only if a webhook listens.
+      const notify = await webhookService.hasWebhooksFor(
+        projectContext.projectId,
+        'record.deleted',
+        table
+      );
+      const recordsToDelete = notify
+        ? await crudService.select(projectContext.projectId, table, {
+          filters,
+          limit: 100, // Reasonable limit for webhook payloads
+        })
+        : { rows: [] as Record<string, unknown>[], rowCount: 0 };
 
       const result = await crudService.delete(projectContext.projectId, table, filters);
 

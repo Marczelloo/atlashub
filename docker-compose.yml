@@ -88,7 +88,7 @@ services:
       AUTH_ACCOUNT_RATE_LIMIT_MAX: ${AUTH_ACCOUNT_RATE_LIMIT_MAX:-}
       AUTH_ACCOUNT_RATE_LIMIT_WINDOW_MS: ${AUTH_ACCOUNT_RATE_LIMIT_WINDOW_MS:-}
     ports:
-      - '${PORT:-4545}:${PORT:-4545}'
+      - '127.0.0.1:${PORT:-4545}:${PORT:-4545}'
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-https://api-atlashub.com}
     ports:
-      - '3000:3001'
+      - '127.0.0.1:3000:3001'
     depends_on:
       - gateway
     networks:
